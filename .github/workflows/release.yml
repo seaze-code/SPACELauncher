@@ -79,7 +79,7 @@ jobs:
         run: |
           cd release/win-unpacked
           if (Get-Command 7z -ErrorAction SilentlyContinue) {
-            7z a -tzip ../SpaceLauncher-Windows-x64.zip * -mx=9
+            7z a -tzip ../SpaceLauncher-Windows-x64.zip * -mx=5
           } else {
             Compress-Archive -Path * -DestinationPath ../SpaceLauncher-Windows-x64.zip -CompressionLevel Optimal -Force
           }
@@ -149,7 +149,7 @@ jobs:
   build-macos:
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -178,7 +178,7 @@ jobs:
 
   create-release:
     needs: [check-version, build-windows, build-linux, build-macos]
-    if: needs.check-version.outputs.should_release == 'true'
+    if: always() && needs.check-version.outputs.should_release == 'true' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -188,20 +188,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: windows-build
-          path: ./release/windows
+          path: ./release/artifacts
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: linux-*-build
-          path: ./release/linux
+          path: ./release/artifacts
           merge-multiple: true
 
       - name: Download macOS artifacts
+        if: needs.build-macos.result == 'success'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: macos-apple-silicon-build
-          path: ./release/macos
+          path: ./release/artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -209,10 +211,7 @@ jobs:
           tag_name: release-${{ needs.check-version.outputs.version }}
           name: release-${{ needs.check-version.outputs.version }}
           body: ${{ needs.check-version.outputs.changelog }}
-          files: |
-            release/windows/*
-            release/linux/*
-            release/macos/*
+          files: release/artifacts/*
           draft: false
           prerelease: false
         env:
