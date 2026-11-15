@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/favicon.svg" width="76" height="76" alt="SpaceLauncher" />
   <h1>SpaceLauncher</h1>
-  <p>A clean, fast Minecraft launcher with isolated instances, 3D Skin Studio, and Modrinth support.<br />Made by <b>Sea</b>.</p>
+  <p>A clean, fast Minecraft launcher with isolated instances, 3D Skin Studio, and Modrinth support.<br />Forked &amp; maintained by <b>Sea</b>.</p>
 
   <p>
     <a href="https://github.com/seaze-code/SPACELauncher/releases/latest"><img src="https://img.shields.io/github/v/release/seaze-code/SPACELauncher?style=flat-square&color=09090b&label=release" alt="Release" /></a>
@@ -67,6 +67,6 @@ NSIS scripts live in `script/compile-web-installer.nsi` and `script/compile-elec
 
 ## Credits
 
-- Created by **Sea**
-- Based on OpenLauncher under the [GPL-2.0 License](LICENSE)
+- Forked from [OpenLauncher](https://github.com/CesarGarza55/OpenLauncher) and maintained by **Sea**
+- Licensed under the [GPL-2.0 License](LICENSE)
 - Not affiliated with Mojang AB or Microsoft
