@@ -1,51 +1,52 @@
-<p align="center">
-  <img width="96px" src="public/favicon.svg" alt="SpaceLauncher" />
-  <h1 align="center">SpaceLauncher</h1>
-  <p align="center">
-    A fast, clean Minecraft launcher built with <b>React</b> and <b>Electron</b> for <b>Windows</b>, <b>macOS</b>, and <b>Linux</b> — developed by <b>Sea</b>.
-  </p>
-</p>
+<div align="center">
+  <img src="public/favicon.svg" width="76" height="76" alt="SpaceLauncher" />
+  <h1>SpaceLauncher</h1>
+  <p>A clean, fast Minecraft launcher with isolated instances, 3D Skin Studio, and Modrinth support.<br />Made by <b>Sea</b>.</p>
 
-<p align="center">
-  <a href="https://github.com/seaze-code/SPACELauncher/releases"><img alt="Latest Release" src="https://img.shields.io/github/v/release/seaze-code/SPACELauncher?style=flat&color=3b82f6" /></a>
-  <img alt="License" src="https://img.shields.io/badge/License-GPL--2.0-blue.svg?style=flat" />
-  <img alt="Electron" src="https://img.shields.io/badge/Electron-43+-47848F?style=flat&logo=electron&logoColor=white" />
-  <img alt="React" src="https://img.shields.io/badge/React-19+-61DAFB?style=flat&logo=react&logoColor=black" />
-  <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-22c55e?style=flat" />
-</p>
+  <p>
+    <a href="https://github.com/seaze-code/SPACELauncher/releases/latest"><img src="https://img.shields.io/github/v/release/seaze-code/SPACELauncher?style=flat-square&color=09090b&label=release" alt="Release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0-18181b?style=flat-square" alt="License" /></a>
+    <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-18181b?style=flat-square" alt="Platforms" />
+  </p>
+
+  <p>
+    <a href="https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher-WebSetup.exe"><b>Download for Windows (Web Setup · 122 KB)</b></a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/seaze-code/SPACELauncher/releases/latest">All Downloads</a>
+  </p>
+</div>
 
 ---
 
 ## Downloads
 
-Pre-built binaries are published automatically in **[Releases](https://github.com/seaze-code/SPACELauncher/releases)**:
+Grab the latest build from [Releases](https://github.com/seaze-code/SPACELauncher/releases/latest):
 
-| Operating System | Recommended (Small Web Setup) | Full Offline / Portable | Architecture |
-| :--- | :--- | :--- | :--- |
-| **Windows** | `SpaceLauncher-WebSetup.exe` (~200 KB) | `SpaceLauncher.exe` / `SpaceLauncher-Portable-Windows.exe` / `SpaceLauncher-Windows-x64.zip` | x64 |
-| **macOS** | `SpaceLauncher-mac-arm64.dmg` | `SpaceLauncher-mac-arm64.zip` | ARM64 (Apple Silicon) |
-| **Linux** | `SpaceLauncher.deb` | `SpaceLauncher-Portable-Linux.tar.gz` | x64 |
+| Platform | Recommended | Portable / Other |
+| :--- | :--- | :--- |
+| **Windows (x64)** | [`SpaceLauncher-WebSetup.exe`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher-WebSetup.exe) *(122 KB web installer)* | [`SpaceLauncher.exe`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher.exe) · [`SpaceLauncher-Portable-Windows.exe`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher-Portable-Windows.exe) |
+| **macOS (ARM64)** | [`SpaceLauncher-mac-arm64.dmg`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher-mac-arm64.dmg) | [`SpaceLauncher-mac-arm64.zip`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher-mac-arm64.zip) |
+| **Linux (x64)** | [`SpaceLauncher.AppImage`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher.AppImage) | [`SpaceLauncher.deb`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher.deb) · [`SpaceLauncher.tar.gz`](https://github.com/seaze-code/SPACELauncher/releases/latest/download/SpaceLauncher.tar.gz) |
 
-> [!TIP]
-> **`SpaceLauncher-WebSetup.exe`** is a lightweight ~200 KB installer that automatically downloads and extracts `SpaceLauncher-Windows-x64.zip` from the latest GitHub Release into `%LOCALAPPDATA%\SpaceLauncher`.
-
----
-
-## Features
-
-- **Home Stage & Official News**: Play directly from your Home stage with instance switching, Minecraft news cards, and full patch-note reader.
-- **Isolated Instances & Modpack Support**: Create and clone instances with separate game folders, Vanilla/Fabric/Forge/NeoForge/Quilt installation, Snapshot support, `.mrpack` modpack installer, and per-instance live Console.
-- **3D Skin Studio**: Preview 3D skins in real time, paint/customize skins, manage a personal skin library, toggle Classic/Slim arms, switch capes, and upload directly to your Microsoft profile.
-- **Modrinth Hub & Local Content**: Browse and install mods, shaders, resource packs, and datapacks directly or import local files, with Fabric conflict diagnostics.
-- **Themes & System Sync**: Supports OS-synced **System (Auto)**, **Pure White**, **Pure Black**, **Orbital Obsidian**, **Cosmic Nebula**, **Aurora Station**, and **Solar Flare**.
-- **Command Palette (`Ctrl+K`) & Zero-Overhead Launch**: Quick keyboard navigation, `Keep Open`, `Hide`, or `Close (0 MB Mode)` while Minecraft runs, plus smart ZGC/G1GC JVM presets.
-- **Multi-Language UI**: English, ไทย, Español, Français.
+> Using Windows? `SpaceLauncher-WebSetup.exe` is only ~122 KB and fetches the latest release archive into `%LOCALAPPDATA%\SpaceLauncher`. If you want an offline installer, grab `SpaceLauncher.exe` instead.
 
 ---
 
-## Build from Source
+## What it does
 
-**Requirements:** Node.js 20+, npm, Java JDK 17+ (to run Minecraft).
+- Launch directly from the Home screen with quick instance switching and Minecraft news.
+- Keep each modpack or version in its own isolated folder (Vanilla, Fabric, Forge, NeoForge, Quilt, and Snapshots).
+- Preview, paint, and upload skins in the built-in 3D Skin Studio with Classic/Slim toggles and cape switching.
+- Install `.mrpack` modpacks, local `.jar` mods, shaders, resource packs, and datapacks, or browse Modrinth.
+- View per-instance logs in a dedicated console tab when launching or debugging mods.
+- Match Windows light/dark mode automatically (`System`), or switch between Pure White, Pure Black, and color themes.
+- Open anything fast with `Ctrl+K`, and switch UI languages (`English`, `ไทย`, `Español`, `Français`).
+
+---
+
+## Building from source
+
+Requires **Node.js 22+**, **npm**, and **Java 17+** (for running Minecraft).
 
 ```bash
 git clone https://github.com/seaze-code/SPACELauncher.git
@@ -54,16 +55,18 @@ npm install
 npm run build
 ```
 
-For Windows distributions:
+Package an unpacked Windows build:
+
 ```bash
 npm run build:win:dir
 ```
-And compile `script/compile-web-installer.nsi` or `script/compile-electron.nsi` with [NSIS](https://nsis.sourceforge.io/Download).
+
+NSIS scripts live in `script/compile-web-installer.nsi` and `script/compile-electron.nsi`.
 
 ---
 
-## Credits & License
+## Credits
 
-- **Developed by:** **Sea** ([seaze-code](https://github.com/seaze-code))
-- **Upstream Base:** Built upon OpenLauncher and licensed under the **[GPL-2.0 License](LICENSE)**.
-- Not affiliated with Mojang AB or Microsoft.
+- Created by **Sea**
+- Based on OpenLauncher under the [GPL-2.0 License](LICENSE)
+- Not affiliated with Mojang AB or Microsoft
