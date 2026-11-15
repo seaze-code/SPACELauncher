@@ -6,6 +6,8 @@ import { ModsTab } from './tabs/ModsTab';
 import { ShadersTab } from './tabs/ShadersTab';
 import { ResourcePacksTab } from './tabs/ResourcePacksTab';
 import { DatapacksTab } from './tabs/DatapacksTab';
+import { WorldsTab } from './tabs/WorldsTab';
+import { ScreenshotsTab } from './tabs/ScreenshotsTab';
 import { ConsoleTab } from './tabs/ConsoleTab';
 import { useI18n } from '../../context/I18nContext';
 
@@ -19,6 +21,8 @@ export function InstanceDetailView({
   isRunningThisInstance = false,
   onEditInstance,
   onDuplicateInstance,
+  onExportInstance,
+  exportingInstance = false,
   onOpenFolder,
   // Shared drag & content props
   isDragging,
@@ -58,6 +62,20 @@ export function InstanceDetailView({
   datapacks = [],
   handleOpenLocalDatapackDetails,
   handleDeleteDatapack,
+  // Worlds & Screenshots
+  worlds = [],
+  worldsLoading = false,
+  backingUpWorldFolder = null,
+  onRefreshWorlds,
+  onBackupWorld,
+  onOpenWorldFolder,
+  onDeleteWorld,
+  screenshots = [],
+  screenshotsLoading = false,
+  onRefreshScreenshots,
+  onLoadScreenshotFull,
+  onCopyScreenshot,
+  onDeleteScreenshot,
   // Console
   runPid = null,
   logFilter = 'all',
@@ -86,6 +104,8 @@ export function InstanceDetailView({
     { id: 'shaders', label: t('sidebar.shaders'), icon: ICONS.sun, count: shaders.length },
     { id: 'resourcepacks', label: t('sidebar.resourcePacks'), icon: ICONS.layers, count: resourcePacks.length },
     { id: 'datapacks', label: t('sidebar.datapacks'), icon: ICONS.datapack, count: datapacks.length },
+    { id: 'worlds', label: t('worlds.tab'), icon: ICONS.globe, count: worlds.length },
+    { id: 'screenshots', label: t('screenshots.tab'), icon: ICONS.image, count: screenshots.length },
     { id: 'console', label: t('sidebar.console'), icon: ICONS.console, count: logs.length },
   ];
 
@@ -138,6 +158,12 @@ export function InstanceDetailView({
                         {t('instances.playtime', { time: formattedPlaytime })}
                       </span>
                     )}
+                    {instance.serverAddress && (
+                      <span className="instance-ram-chip" title={t('instances.quickJoinLabel')}>
+                        <Icon d={ICONS.server} size={11} />
+                        <span>{instance.serverAddress}</span>
+                      </span>
+                    )}
                   </>
                 ) : (
                   <span className="instance-workspace-sub">{t('instances.globalInstallationDesc')}</span>
@@ -166,6 +192,31 @@ export function InstanceDetailView({
           >
             <Icon d={ICONS.folder} size={13} />
           </button>
+
+          {!isGlobal && onExportInstance && (
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onExportInstance(instance, 'mrpack')}
+                disabled={exportingInstance}
+                title={t('instances.exportMrpack')}
+              >
+                <Icon d={exportingInstance ? ICONS.spinner : ICONS.upload} size={13} className={exportingInstance ? 'spin-infinite' : ''} />
+                <span>.mrpack</span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onExportInstance(instance, 'zip')}
+                disabled={exportingInstance}
+                title={t('instances.exportZip')}
+              >
+                <Icon d={ICONS.box} size={13} />
+                <span>.zip</span>
+              </button>
+            </>
+          )}
 
           {!isGlobal && onDuplicateInstance && (
             <button
@@ -322,6 +373,32 @@ export function InstanceDetailView({
             setActiveTab={setActiveTab}
             handleOpenLocalDatapackDetails={handleOpenLocalDatapackDetails}
             handleDeleteDatapack={handleDeleteDatapack}
+          />
+        )}
+
+        {subTab === 'worlds' && (
+          <WorldsTab
+            active
+            worlds={worlds}
+            loading={worldsLoading}
+            backingUpFolder={backingUpWorldFolder}
+            onRefresh={onRefreshWorlds}
+            onBackupWorld={onBackupWorld}
+            onOpenWorldFolder={onOpenWorldFolder}
+            onDeleteWorld={onDeleteWorld}
+          />
+        )}
+
+        {subTab === 'screenshots' && (
+          <ScreenshotsTab
+            active
+            screenshots={screenshots}
+            loading={screenshotsLoading}
+            onRefresh={onRefreshScreenshots}
+            onOpenFolder={handleOpenContentFolder}
+            onLoadFull={onLoadScreenshotFull}
+            onCopyScreenshot={onCopyScreenshot}
+            onDeleteScreenshot={onDeleteScreenshot}
           />
         )}
 

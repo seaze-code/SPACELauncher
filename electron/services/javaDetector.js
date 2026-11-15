@@ -140,6 +140,27 @@ export function collectCommonJavaCandidates() {
   };
   const home = getSafeHomeDir();
 
+  try {
+    const userDataDir = app?.getPath?.('userData');
+    if (userDataDir) {
+      const managedRoot = path.join(userDataDir, 'java-runtimes');
+      if (fs.existsSync(managedRoot)) {
+        const exeName = process.platform === 'win32' ? 'java.exe' : 'java';
+        const walkManaged = (dir, depth = 0) => {
+          if (depth > 4) return;
+          const direct = path.join(dir, 'bin', exeName);
+          if (fs.existsSync(direct)) add(direct);
+          const macDirect = path.join(dir, 'Contents', 'Home', 'bin', exeName);
+          if (fs.existsSync(macDirect)) add(macDirect);
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) walkManaged(path.join(dir, entry.name), depth + 1);
+          }
+        };
+        walkManaged(managedRoot, 0);
+      }
+    }
+  } catch { }
+
   const pathCandidates = process.platform === 'win32' ? ['java.exe', 'java'] : ['java'];
   for (const executable of pathCandidates) {
     const lookup = spawnSync(process.platform === 'win32' ? 'where' : 'which', [executable], {

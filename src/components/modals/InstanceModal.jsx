@@ -71,7 +71,8 @@ export function InstanceModal({
   const [ram, setRam] = useState(instance?.ram || 4);
   const [jvmArguments, setJvmArguments] = useState(instance?.jvmArguments || '');
   const [javaPath, setJavaPath] = useState(instance?.javaPath || '');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [serverAddress, setServerAddress] = useState(instance?.serverAddress || '');
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(instance?.serverAddress));
 
   useEffect(() => {
     if (!showSnapshots) {
@@ -267,6 +268,7 @@ export function InstanceModal({
       ram: Number(ram) || 4,
       jvmArguments: jvmArguments.trim(),
       javaPath: javaPath.trim(),
+      serverAddress: serverAddress.trim(),
       autoInstallTarget,
     });
     onClose();
@@ -672,6 +674,18 @@ export function InstanceModal({
                     value={jvmArguments}
                     onChange={e => setJvmArguments(e.target.value)}
                     placeholder={t('instances.jvmArgsPlaceholder')}
+                  />
+                </div>
+
+                <div className="modal-field" style={{ margin: 0 }}>
+                  <label className="modal-label">
+                    <span>{t('instances.quickJoinLabel')}</span>
+                  </label>
+                  <input
+                    className="modal-input"
+                    value={serverAddress}
+                    onChange={e => setServerAddress(e.target.value)}
+                    placeholder="play.example.com:25565"
                   />
                 </div>
 

@@ -66,6 +66,42 @@ contextBridge.exposeInMainWorld('launcher', {
   javaPickExecutable() {
     return ipcRenderer.invoke('java:pick-executable');
   },
+  javaInstall(major) {
+    return ipcRenderer.invoke('java:install', { major });
+  },
+  exportInstance(payload) {
+    return ipcRenderer.invoke('instances:export', payload);
+  },
+  worldsList(instanceId) {
+    return ipcRenderer.invoke('worlds:list', instanceId);
+  },
+  worldsBackup(instanceId, folderName) {
+    return ipcRenderer.invoke('worlds:backup', { instanceId, folderName });
+  },
+  worldsDelete(instanceId, folderName) {
+    return ipcRenderer.invoke('worlds:delete', { instanceId, folderName });
+  },
+  worldsOpenFolder(instanceId, folderName) {
+    return ipcRenderer.invoke('worlds:open-folder', { instanceId, folderName });
+  },
+  screenshotsList(instanceId) {
+    return ipcRenderer.invoke('screenshots:list', instanceId);
+  },
+  screenshotsGetFull(instanceId, fileName) {
+    return ipcRenderer.invoke('screenshots:get-full', { instanceId, fileName });
+  },
+  screenshotsCopy(instanceId, fileName) {
+    return ipcRenderer.invoke('screenshots:copy', { instanceId, fileName });
+  },
+  screenshotsDelete(instanceId, fileName) {
+    return ipcRenderer.invoke('screenshots:delete', { instanceId, fileName });
+  },
+  discordUpdatePresence(payload) {
+    return ipcRenderer.invoke('discord:update-presence', payload);
+  },
+  discordGetStatus() {
+    return ipcRenderer.invoke('discord:get-status');
+  },
   minecraftToggleMod(modId, enable, instanceId) {
     return ipcRenderer.invoke('minecraft:toggle-mod', { modId, enable, instanceId });
   },

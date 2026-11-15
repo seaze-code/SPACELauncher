@@ -23,6 +23,8 @@ export const DEFAULT_LAUNCHER_STATE = {
     theme: 'obsidian',
     compactMode: false,
     reduceMotion: false,
+    discordRpc: true,
+    discordClientId: '',
   },
   installTargets: {
     minecraft: { title: 'Install Minecraft', versions: [] },
@@ -73,7 +75,7 @@ export function normalizeProfile(profile, index = 0) {
   };
 }
 
-const VALID_THEMES = new Set(['obsidian', 'nebula', 'emerald', 'amber']);
+const VALID_THEMES = new Set(['system', 'light', 'dark', 'obsidian', 'nebula', 'emerald', 'amber']);
 
 function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.settings) {
   const rawBehavior = settings?.launchBehavior;
@@ -104,6 +106,8 @@ function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.s
     theme,
     compactMode: typeof settings?.compactMode === 'boolean' ? settings.compactMode : Boolean(fallbackSettings?.compactMode),
     reduceMotion: typeof settings?.reduceMotion === 'boolean' ? settings.reduceMotion : Boolean(fallbackSettings?.reduceMotion),
+    discordRpc: typeof settings?.discordRpc === 'boolean' ? settings.discordRpc : (fallbackSettings?.discordRpc ?? true),
+    discordClientId: typeof settings?.discordClientId === 'string' ? settings.discordClientId.trim() : (fallbackSettings?.discordClientId || ''),
   };
 }
 

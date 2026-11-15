@@ -76,6 +76,12 @@ export default function App() {
   const [shaders, setShaders] = useState([]);
   const [resourcePacks, setResourcePacks] = useState([]);
   const [datapacks, setDatapacks] = useState([]);
+  const [worlds, setWorlds] = useState([]);
+  const [worldsLoading, setWorldsLoading] = useState(false);
+  const [backingUpWorldFolder, setBackingUpWorldFolder] = useState(null);
+  const [screenshots, setScreenshots] = useState([]);
+  const [screenshotsLoading, setScreenshotsLoading] = useState(false);
+  const [exportingInstance, setExportingInstance] = useState(false);
   const [modrinthQueries, setModrinthQueries] = useState({ mods: '', modpacks: '', shaders: '', resourcepacks: '', datapacks: '' });
   const [modrinthCategories, setModrinthCategories] = useState({ mods: 'all', modpacks: 'all', shaders: 'all', resourcepacks: 'all', datapacks: 'all' });
 
@@ -167,6 +173,8 @@ export default function App() {
     theme: 'system',
     compactMode: false,
     reduceMotion: false,
+    discordRpc: true,
+    discordClientId: '',
   });
   const consoleRef = useRef(null);
   const modrinthSentinelRef = useRef(null);
@@ -914,6 +922,9 @@ export default function App() {
         profile: runProfile,
         version: targetVersion,
         instanceId: activeInst.id,
+        instanceName: activeInst.name,
+        loader: activeInst.loader || targetVersion?.type || 'vanilla',
+        serverAddress: activeInst.serverAddress || '',
         session: runSession || createOfflineSession(activeProfile.localName || 'Player'),
       };
       const res = await launcher.minecraftRun(runOpts);
@@ -940,6 +951,14 @@ export default function App() {
     const nextSettings = { ...stateRef.current.settings, [key]: val };
     setSettings(prev => ({ ...prev, [key]: val }));
     stateRef.current = { ...stateRef.current, settings: nextSettings };
+
+    if (key === 'discordRpc' || key === 'discordClientId') {
+      launcher.discordUpdatePresence?.({
+        enabled: nextSettings.discordRpc !== false,
+        clientId: nextSettings.discordClientId || '',
+        state: 'In Launcher',
+      }).catch(() => {});
+    }
 
     if (key === 'showSnapshots') {
       persistState({ settings: nextSettings });
@@ -1248,13 +1267,158 @@ export default function App() {
     } catch { }
   }, [activeInstanceId, persistState]);
 
+  const loadWorlds = useCallback(async () => {
+    setWorldsLoading(true);
+    try {
+      const res = await launcher.worldsList?.(activeInstanceId);
+      if (Array.isArray(res?.worlds)) {
+        setWorlds(res.worlds);
+      } else {
+        setWorlds([]);
+      }
+    } catch {
+      setWorlds([]);
+    } finally {
+      setWorldsLoading(false);
+    }
+  }, [activeInstanceId]);
+
+  const loadScreenshots = useCallback(async () => {
+    setScreenshotsLoading(true);
+    try {
+      const res = await launcher.screenshotsList?.(activeInstanceId);
+      if (Array.isArray(res?.screenshots)) {
+        setScreenshots(res.screenshots);
+      } else {
+        setScreenshots([]);
+      }
+    } catch {
+      setScreenshots([]);
+    } finally {
+      setScreenshotsLoading(false);
+    }
+  }, [activeInstanceId]);
+
   // Synchronize content whenever activeInstanceId changes
   useEffect(() => {
     loadMods();
     loadShaders();
     loadResourcePacks();
     loadDatapacks();
-  }, [activeInstanceId, loadMods, loadShaders, loadResourcePacks, loadDatapacks]);
+    loadWorlds();
+    loadScreenshots();
+  }, [activeInstanceId, loadMods, loadShaders, loadResourcePacks, loadDatapacks, loadWorlds, loadScreenshots]);
+
+  const handleBackupWorld = async (world) => {
+    if (!world?.folderName) return;
+    setBackingUpWorldFolder(world.folderName);
+    try {
+      const res = await launcher.worldsBackup?.(activeInstanceId, world.folderName);
+      if (res?.ok) {
+        pushToast({
+          tone: 'success',
+          title: t('worlds.tab'),
+          message: t('worlds.backupSuccess', { name: res.fileName || world.name }),
+        });
+      } else if (!res?.canceled) {
+        pushToast({
+          tone: 'error',
+          title: t('common.error') || 'Error',
+          message: res?.message || 'Backup failed.',
+        });
+      }
+    } catch (err) {
+      pushToast({ tone: 'error', title: t('common.error') || 'Error', message: err?.message || 'Backup failed.' });
+    } finally {
+      setBackingUpWorldFolder(null);
+    }
+  };
+
+  const handleOpenWorldFolder = async (folderName = '') => {
+    try {
+      await launcher.worldsOpenFolder?.(activeInstanceId, folderName);
+    } catch { }
+  };
+
+  const handleDeleteWorld = (world) => {
+    if (!world?.folderName) return;
+    setConfirmDialog({
+      title: t('common.delete'),
+      message: t('worlds.deleteConfirm', { name: world.name || world.folderName }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      onConfirm: async () => {
+        const res = await launcher.worldsDelete?.(activeInstanceId, world.folderName);
+        if (res?.ok) {
+          loadWorlds();
+        } else {
+          pushToast({ tone: 'error', title: t('common.error') || 'Error', message: res?.message || 'Delete failed.' });
+        }
+      },
+    });
+  };
+
+  const handleLoadScreenshotFull = async (fileName) => {
+    try {
+      const res = await launcher.screenshotsGetFull?.(activeInstanceId, fileName);
+      return res?.dataUri || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleCopyScreenshot = async (shot) => {
+    if (!shot?.fileName) return;
+    try {
+      const res = await launcher.screenshotsCopy?.(activeInstanceId, shot.fileName);
+      if (res?.ok) {
+        pushToast({ tone: 'info', title: t('screenshots.tab'), message: t('screenshots.copied') });
+      }
+    } catch { }
+  };
+
+  const handleDeleteScreenshot = (shot) => {
+    if (!shot?.fileName) return;
+    setConfirmDialog({
+      title: t('common.delete'),
+      message: t('screenshots.deleteConfirm', { name: shot.fileName }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      onConfirm: async () => {
+        const res = await launcher.screenshotsDelete?.(activeInstanceId, shot.fileName);
+        if (res?.ok) {
+          loadScreenshots();
+        }
+      },
+    });
+  };
+
+  const handleExportInstance = async (inst, format = 'mrpack') => {
+    if (!inst?.id) return;
+    setExportingInstance(true);
+    try {
+      const res = await launcher.exportInstance?.({ instanceId: inst.id, format });
+      if (res?.ok) {
+        pushToast({
+          tone: 'success',
+          title: format === 'zip' ? t('instances.exportZip') : t('instances.exportMrpack'),
+          message: t('instances.exportSuccess', { name: res.fileName || inst.name }),
+        });
+      } else if (!res?.canceled) {
+        pushToast({
+          tone: 'error',
+          title: t('common.error') || 'Error',
+          message: res?.message || 'Export failed.',
+        });
+      }
+    } catch (err) {
+      pushToast({ tone: 'error', title: t('common.error') || 'Error', message: err?.message || 'Export failed.' });
+    } finally {
+      setExportingInstance(false);
+    }
+  };
 
   const handleDeleteShader = async (shader) => {
     try {
@@ -2122,6 +2286,10 @@ export default function App() {
       loadShaders();
       loadResourcePacks();
       loadDatapacks();
+      if (viewingInstanceContent) {
+        loadWorlds();
+        loadScreenshots();
+      }
 
       if (viewingInstanceContent && instanceSubTab === 'mods' && isOnline) {
         if (!hasCheckedModsOnTabOpenRef.current) {
@@ -2132,7 +2300,7 @@ export default function App() {
     } else {
       hasCheckedModsOnTabOpenRef.current = false;
     }
-  }, [activeTab, instanceWorkspaceOpen, instanceSubTab, isOnline, loadMods, loadShaders, loadResourcePacks, loadDatapacks]);
+  }, [activeTab, instanceWorkspaceOpen, instanceSubTab, isOnline, loadMods, loadShaders, loadResourcePacks, loadDatapacks, loadWorlds, loadScreenshots]);
 
   const handleCheckForUpdates = async () => {
     addLog('info', t('messages.checkingUpdates'));
@@ -3016,6 +3184,8 @@ export default function App() {
                   isRunningThisInstance={gameState === 'running'}
                   onEditInstance={(inst) => setInstanceEditor({ mode: 'edit', instance: inst })}
                   onDuplicateInstance={handleDuplicateInstance}
+                  onExportInstance={handleExportInstance}
+                  exportingInstance={exportingInstance}
                   onOpenFolder={(id) => {
                     if (id) launcher.minecraftOpenContentFolder('instance', id);
                     else handleOpenMinecraftDirectory();
@@ -3053,6 +3223,19 @@ export default function App() {
                   datapacks={datapacks}
                   handleOpenLocalDatapackDetails={handleOpenLocalDatapackDetails}
                   handleDeleteDatapack={handleDeleteDatapack}
+                  worlds={worlds}
+                  worldsLoading={worldsLoading}
+                  backingUpWorldFolder={backingUpWorldFolder}
+                  onRefreshWorlds={loadWorlds}
+                  onBackupWorld={handleBackupWorld}
+                  onOpenWorldFolder={handleOpenWorldFolder}
+                  onDeleteWorld={handleDeleteWorld}
+                  screenshots={screenshots}
+                  screenshotsLoading={screenshotsLoading}
+                  onRefreshScreenshots={loadScreenshots}
+                  onLoadScreenshotFull={handleLoadScreenshotFull}
+                  onCopyScreenshot={handleCopyScreenshot}
+                  onDeleteScreenshot={handleDeleteScreenshot}
                   runPid={runPid}
                   logFilter={logFilter}
                   setLogFilter={setLogFilter}

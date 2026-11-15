@@ -8,7 +8,9 @@
     "cancel": "ยกเลิก",
     "save": "บันทึก",
     "delete": "ลบ",
-    "edit": "แก้ไข"
+    "edit": "แก้ไข",
+    "retry": "ลองใหม่",
+    "refresh": "รีเฟรช"
   },
   "sidebar": {
     "profiles": "โปรไฟล์",
@@ -157,6 +159,14 @@
     "noJavaFound": "ไม่พบ Java ในเครื่องโดยอัตโนมัติ",
     "selectJavaRuntime": "เลือก Java ที่ตรวจพบ...",
     "browseJava": "เลือกไฟล์...",
+    "autoInstallJavaLabel": "ติดตั้ง Java อัตโนมัติ (Adoptium):",
+    "installingJava": "กำลังติดตั้ง Java {major}...",
+    "javaInstalledSuccess": "ติดตั้งและเลือกใช้ Java {major} เรียบร้อยแล้ว",
+    "javaInstallError": "ติดตั้ง Java ไม่สำเร็จ: {error}",
+    "discordRpc": "แสดงสถานะบน Discord (Rich Presence)",
+    "discordRpcDesc": "โชว์ชื่ออินสแตนซ์และเวอร์ชัน Minecraft ที่กำลังเล่นบนโปรไฟล์ Discord ของคุณ",
+    "discordClientId": "Discord Application ID",
+    "discordClientIdDesc": "ระบุ Application ID จาก Discord Developer Portal (ไม่บังคับหากใช้ค่าเริ่มต้น)",
     "theme": "ธีมหน้าต่างลันเชอร์",
     "themeDesc": "เลือกโทนสีและบรรยากาศของ SpaceLauncher ตามสไตล์ที่ชอบ",
     "themeObsidian": "Orbital Obsidian",
@@ -608,7 +618,11 @@
     "importModpack": "ลงม็อดแพ็ก (.mrpack)",
     "importModpackTooltip": "นำเข้าไฟล์ม็อดแพ็ก (.mrpack) เพื่อสร้างเป็นอินสแตนซ์ใหม่อัตโนมัติ",
     "importingModpackToast": "กำลังติดตั้งม็อดแพ็ก \"{name}\"...",
-    "modpackInstalledSuccess": "สร้างอินสแตนซ์ \"{name}\" จากม็อดแพ็กเรียบร้อยแล้ว"
+    "modpackInstalledSuccess": "สร้างอินสแตนซ์ \"{name}\" จากม็อดแพ็กเรียบร้อยแล้ว",
+    "quickJoinLabel": "เข้าเซิร์ฟเวอร์อัตโนมัติเมื่อเปิดเกม (Quick Join IP)",
+    "exportMrpack": "ส่งออกอินสแตนซ์เป็น Modrinth .mrpack",
+    "exportZip": "ส่งออกไฟล์สำรองอินสแตนซ์ทั้งหมด (.zip)",
+    "exportSuccess": "ส่งออกไฟล์ {name} เรียบร้อยแล้ว"
   },
   "accountModal": {
     "manageTitle": "จัดการบัญชีผู้เล่น",
@@ -725,5 +739,24 @@
     "groupNavigation": "ไปที่หน้า",
     "groupActions": "การทำงาน",
     "groupThemes": "ธีมสี"
+  },
+  "worlds": {
+    "tab": "โลก (Worlds)",
+    "searchPlaceholder": "ค้นหาโลกที่เซฟไว้...",
+    "emptyTitle": "ยังไม่มีเซฟโลกในอินสแตนซ์นี้",
+    "emptyDesc": "โลกที่เล่นคนเดียว (Singleplayer) จะแสดงที่นี่เพื่อให้สำรองไฟล์เป็น .zip ได้ง่ายๆ",
+    "backupZip": "Backup .zip",
+    "backingUp": "กำลังแพ็ก .zip...",
+    "backupSuccess": "สำรองไฟล์เซฟ \"{name}\" สำเร็จแล้ว",
+    "deleteConfirm": "ต้องการลบโลก \"{name}\" ถาวรหรือไม่? ไม่สามารถกู้คืนได้"
+  },
+  "screenshots": {
+    "tab": "ภาพถ่าย (Screenshots)",
+    "searchPlaceholder": "ค้นหารูปตามชื่อไฟล์...",
+    "emptyTitle": "ยังไม่มีภาพถ่ายในเกม",
+    "emptyDesc": "กด F2 ระหว่างเล่น Minecraft เพื่อถ่ายรูป แล้วกลับมาเปิดดูที่นี่ได้เลย",
+    "copy": "คัดลอกรูป",
+    "copied": "คัดลอกรูปลง Clipboard แล้ว",
+    "deleteConfirm": "ต้องการลบรูปภาพ \"{name}\" หรือไม่?"
   }
 }

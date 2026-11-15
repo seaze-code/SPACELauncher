@@ -74,9 +74,15 @@ jobs:
       - name: Build Electron app folder
         run: npx electron-builder --win --dir
 
-      - name: Create Windows x64 archive for Web Installer
+      - name: Create Windows x64 archive for Web Installer and Delta ASAR
         shell: pwsh
         run: |
+          Copy-Item -Path "release/win-unpacked/resources/app.asar" -Destination "release/SpaceLauncher-app.asar" -Force
+          $hash = (Get-FileHash "release/SpaceLauncher-app.asar" -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item "release/SpaceLauncher-app.asar").Length
+          $electronVer = node -e "const p=require('./node_modules/electron/package.json'); console.log(String(p.version||'').split('.')[0]||'')"
+          $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          @{ version = $ver; electronMajor = [int]$electronVer; asarSha256 = $hash; asarSize = $size } | ConvertTo-Json | Set-Content -Path "release/delta-manifest.json" -Encoding UTF8
           cd release/win-unpacked
           if (Get-Command 7z -ErrorAction SilentlyContinue) {
             7z a -tzip ../SpaceLauncher-Windows-x64.zip * -mx=5
@@ -105,6 +111,8 @@ jobs:
           path: |
             release/*.exe
             release/*.zip
+            release/SpaceLauncher-app.asar
+            release/delta-manifest.json
 
   build-linux:
     needs: check-version

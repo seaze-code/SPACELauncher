@@ -108,6 +108,7 @@ async function readInstanceEntry(instanceDirName, instancesDir) {
     ram: Number(config.ram) || 4,
     jvmArguments: config.jvmArguments || '',
     javaPath: config.javaPath || '',
+    serverAddress: config.serverAddress || '',
     created: config.created || Date.now(),
     lastPlayed: config.lastPlayed || null,
     playTimeMs: Number(config.playTimeMs) || 0,
@@ -166,6 +167,7 @@ export async function createInstance({
   ram = 4,
   jvmArguments = '',
   javaPath = '',
+  serverAddress = '',
 }) {
   await ensureInstancesDir();
   const baseId = sanitizeInstanceId(name);
@@ -207,6 +209,7 @@ export async function createInstance({
     ram: Number(ram) || 4,
     jvmArguments: String(jvmArguments || '').trim(),
     javaPath: String(javaPath || '').trim(),
+    serverAddress: String(serverAddress || '').trim(),
     created: Date.now(),
     lastPlayed: null,
     playTimeMs: 0,
@@ -307,7 +310,7 @@ export async function duplicateInstance(sourceId, newName = null) {
   const targetPath = getInstanceDir(targetId);
   await fs.promises.mkdir(targetPath, { recursive: true });
 
-  const skipEntries = new Set(['logs', 'crash-reports', 'natives', 'usercache.json', 'usernamecache.json']);
+  const skipEntries = new Set(['logs', 'crash-reports', 'natives', 'backups', 'usercache.json', 'usernamecache.json']);
   const entries = await fs.promises.readdir(sourcePath);
   for (const entry of entries) {
     if (skipEntries.has(entry) || entry === 'instance.json') continue;

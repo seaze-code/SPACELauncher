@@ -114,6 +114,33 @@ export function SettingsView({
                   </div>
                   <Toggle on={settings.showConsole} onToggle={() => onChange('showConsole', !settings.showConsole)} />
                 </div>
+
+                <div className="settings-option">
+                  <div className="settings-option-copy">
+                    <div className="settings-option-title">{t('settings.discordRpc')}</div>
+                    <div className="settings-option-description">{t('settings.discordRpcDesc')}</div>
+                  </div>
+                  <Toggle
+                    on={settings.discordRpc !== false}
+                    onToggle={() => onChange('discordRpc', !(settings.discordRpc !== false))}
+                  />
+                </div>
+
+                {settings.discordRpc !== false && (
+                  <div className="settings-option">
+                    <div className="settings-option-copy">
+                      <div className="settings-option-title">{t('settings.discordClientId')}</div>
+                      <div className="settings-option-description">{t('settings.discordClientIdDesc')}</div>
+                    </div>
+                    <input
+                      className="modal-input settings-option-control"
+                      style={{ maxWidth: 230, fontSize: 12 }}
+                      value={settings.discordClientId || ''}
+                      onChange={e => onChange('discordClientId', e.target.value)}
+                      placeholder="1234567890123456789"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="settings-section-group">

@@ -8,7 +8,9 @@
     "cancel": "Cancel",
     "save": "Save",
     "delete": "Delete",
-    "edit": "Edit"
+    "edit": "Edit",
+    "retry": "Retry",
+    "refresh": "Refresh"
   },
   "sidebar": {
     "profiles": "Profiles",
@@ -157,6 +159,14 @@
     "noJavaFound": "No Java runtimes detected automatically.",
     "selectJavaRuntime": "Select detected runtime...",
     "browseJava": "Browse...",
+    "autoInstallJavaLabel": "Auto-install Adoptium Java:",
+    "installingJava": "Installing Java {major}...",
+    "javaInstalledSuccess": "Java {major} installed and selected",
+    "javaInstallError": "Failed to install Java: {error}",
+    "discordRpc": "Discord Rich Presence",
+    "discordRpcDesc": "Display your active instance and Minecraft version on Discord.",
+    "discordClientId": "Discord Application ID",
+    "discordClientIdDesc": "Custom Discord App ID (optional — required unless using default client).",
     "theme": "Launcher theme",
     "themeDesc": "Choose an atmospheric color palette for SpaceLauncher.",
     "themeObsidian": "Orbital Obsidian",
@@ -583,6 +593,7 @@
     "sortName": "Name (A-Z)",
     "sortMods": "Most mods",
     "manageContent": "Manage",
+    "newInstance": "New Instance",
     "browseModrinth": "Add from Modrinth",
     "jvmPresets": "JVM optimization presets",
     "jvmPresetDefault": "Default",
@@ -605,7 +616,11 @@
     "importModpack": "Import Modpack",
     "importModpackTooltip": "Import a .mrpack modpack archive as a new isolated instance",
     "importingModpackToast": "Installing modpack \"{name}\"...",
-    "modpackInstalledSuccess": "Created instance \"{name}\" from modpack."
+    "modpackInstalledSuccess": "Created instance \"{name}\" from modpack.",
+    "quickJoinLabel": "Quick Join Server (host:port)",
+    "exportMrpack": "Export instance as Modrinth .mrpack",
+    "exportZip": "Export full instance backup (.zip)",
+    "exportSuccess": "Exported {name} successfully."
   },
   "accountModal": {
     "manageTitle": "Manage Account",
@@ -722,5 +737,24 @@
     "groupNavigation": "Go to",
     "groupActions": "Actions",
     "groupThemes": "Themes"
+  },
+  "worlds": {
+    "tab": "Worlds",
+    "searchPlaceholder": "Search saved worlds...",
+    "emptyTitle": "No saved worlds found",
+    "emptyDesc": "Singleplayer worlds created in this instance will appear here for easy backup.",
+    "backupZip": "Backup .zip",
+    "backingUp": "Backing up...",
+    "backupSuccess": "Saved backup archive \"{name}\"",
+    "deleteConfirm": "Delete world \"{name}\"? This cannot be undone."
+  },
+  "screenshots": {
+    "tab": "Screenshots",
+    "searchPlaceholder": "Search screenshots by filename...",
+    "emptyTitle": "No screenshots captured yet",
+    "emptyDesc": "Press F2 in Minecraft to capture screenshots — they will appear in this gallery.",
+    "copy": "Copy Image",
+    "copied": "Screenshot copied to clipboard.",
+    "deleteConfirm": "Delete screenshot \"{name}\"?"
   }
 }

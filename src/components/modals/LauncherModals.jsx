@@ -965,9 +965,11 @@ export function UpdateModal({ updateInfo, onClose, onInstall }) {
     updateInfo.currentVersion = currentVersion.slice(8);
   }
   const releaseNotes = updateInfo.releaseNotes || '';
-  const assetSize = typeof updateInfo.asset?.size === 'number' && updateInfo.asset.size > 0
-    ? formatFileSize(updateInfo.asset.size)
+  const activeAsset = updateInfo.isDelta && updateInfo.deltaAsset ? updateInfo.deltaAsset : updateInfo.asset;
+  const assetSize = typeof activeAsset?.size === 'number' && activeAsset.size > 0
+    ? formatFileSize(activeAsset.size)
     : null;
+  const isDeltaUpdate = Boolean(updateInfo.isDelta && updateInfo.deltaAsset);
 
   return (
     <div className="modal-backdrop" onClick={onClose} style={{ padding: '20px 16px' }}>
@@ -1034,7 +1036,9 @@ export function UpdateModal({ updateInfo, onClose, onInstall }) {
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 }}>
                   {t('updater.downloadSizeLabel')}
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-bright, #fff)' }}>{assetSize}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-bright, #fff)' }}>
+                  {assetSize}{isDeltaUpdate ? ' · Delta' : ''}
+                </span>
               </div>
             </>
           ) : null}

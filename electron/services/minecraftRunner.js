@@ -24,6 +24,8 @@ import {
 import { loadLauncherState } from '../../src/lib/launcherState.js';
 import { getMainWindow } from './windowManager.js';
 import { touchInstanceLastPlayed } from './instanceManager.js';
+import { installJavaRuntime } from './javaInstaller.js';
+import { updateDiscordPresence } from './discordRpc.js';
 
 const MAX_LOG_TAIL_CHARS = 250000;
 
@@ -619,6 +621,25 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
   if (!gameArgs.includes('--userType')) gameArgs.push('--userType', normalizedSession.userType);
   if (!gameArgs.includes('--versionType')) gameArgs.push('--versionType', versionJson?.type || 'release');
 
+  const rawServerAddress = String(opts?.serverAddress || profile?.serverAddress || '').trim();
+  if (rawServerAddress) {
+    const cleanHostPort = rawServerAddress.replace(/^minecraft:\/\//i, '').trim();
+    const lastColon = cleanHostPort.lastIndexOf(':');
+    const hasPort = lastColon > 0 && /^\d+$/.test(cleanHostPort.slice(lastColon + 1));
+    const host = hasPort ? cleanHostPort.slice(0, lastColon) : cleanHostPort;
+    const port = hasPort ? cleanHostPort.slice(lastColon + 1) : '';
+    const mcTuple = versionToTuple(mcVer);
+    const supportsQuickPlay = compareVersionTuples(mcTuple, [2, 1, 20]) >= 0;
+    if (host) {
+      if (supportsQuickPlay && !gameArgs.includes('--quickPlayMultiplayer')) {
+        gameArgs.push('--quickPlayMultiplayer', port ? `${host}:${port}` : host);
+      } else if (!gameArgs.includes('--server')) {
+        gameArgs.push('--server', host, '--port', port || '25565');
+      }
+      onLog?.('info', `[Quick Join] Will connect directly to ${port ? `${host}:${port}` : host}`);
+    }
+  }
+
   if (String(mainClass).includes('net.fabricmc.loader.impl.launch.knot.KnotClient') || String(mainClass).includes('org.quiltmc.loader.impl.launch.knot.KnotClient')) {
     const fabricLoaderRoot = path.join(baseDir, 'libraries', 'net', 'fabricmc', 'fabric-loader');
     const quiltLoaderRoot = path.join(baseDir, 'libraries', 'org', 'quiltmc', 'quilt-loader');
@@ -767,8 +788,23 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
           detectedJavaMajor = compatible.javaMajor;
           onLog?.('info', `✅ Found compatible Java ${detectedJavaMajor} from ${compatible.source} (will be used instead of configured Java)`);
         } else {
-          finalJavaCmd = configuredJavaPath;
-          onLog?.('error', `❌ No compatible Java found. Using configured Java ${detectedJavaMajor} (may not work properly).`);
+          onLog?.('info', `⬇️ No local Java ${requiredJavaMajor}+ found. Installing Eclipse Temurin Java ${requiredJavaMajor} automatically...`);
+          try {
+            const installedJava = await installJavaRuntime(requiredJavaMajor, {
+              onLog,
+              onProgress: opts?.onAssetProgress,
+            });
+            if (installedJava?.ok && installedJava.path) {
+              finalJavaCmd = installedJava.path;
+              detectedJavaMajor = installedJava.major || requiredJavaMajor;
+            }
+          } catch (javaErr) {
+            onLog?.('warn', `⚠️ Automatic Java ${requiredJavaMajor} download failed: ${javaErr?.message || javaErr}`);
+          }
+          if (!finalJavaCmd) {
+            finalJavaCmd = configuredJavaPath;
+            onLog?.('error', `❌ No compatible Java found. Using configured Java ${detectedJavaMajor} (may not work properly).`);
+          }
         }
       } else {
         finalJavaCmd = configuredJavaPath;
@@ -777,6 +813,58 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
     } else {
       onLog?.('warn', `⚠️ Configured Java path not found: ${configuredJavaPath}. Looking for compatible Java...`);
       const compatible = await findCompatibleJava();
+      if (compatible.javaCmd && (!requiredJavaMajor || (compatible.javaMajor && compatible.javaMajor >= requiredJavaMajor))) {
+        finalJavaCmd = compatible.javaCmd;
+        detectedJavaMajor = compatible.javaMajor;
+        onLog?.('info', `✅ Using ${compatible.source} Java ${detectedJavaMajor} from ${finalJavaCmd}`);
+      } else if (requiredJavaMajor) {
+        onLog?.('info', `⬇️ Installing Eclipse Temurin Java ${requiredJavaMajor} automatically...`);
+        try {
+          const installedJava = await installJavaRuntime(requiredJavaMajor, {
+            onLog,
+            onProgress: opts?.onAssetProgress,
+          });
+          if (installedJava?.ok && installedJava.path) {
+            finalJavaCmd = installedJava.path;
+            detectedJavaMajor = installedJava.major || requiredJavaMajor;
+          }
+        } catch (javaErr) {
+          onLog?.('warn', `⚠️ Automatic Java ${requiredJavaMajor} download failed: ${javaErr?.message || javaErr}`);
+        }
+      }
+      if (!finalJavaCmd) {
+        if (compatible.javaCmd) {
+          finalJavaCmd = compatible.javaCmd;
+          detectedJavaMajor = compatible.javaMajor;
+        } else {
+          finalJavaCmd = resolveJavaCommand('');
+          detectedJavaMajor = detectJavaMajor(finalJavaCmd);
+        }
+        onLog?.('warn', `⚠️ Using fallback Java ${detectedJavaMajor || '?'} from ${finalJavaCmd}`);
+      }
+    }
+  } else {
+    const compatible = await findCompatibleJava();
+    if (compatible.javaCmd && (!requiredJavaMajor || (compatible.javaMajor && compatible.javaMajor >= requiredJavaMajor))) {
+      finalJavaCmd = compatible.javaCmd;
+      detectedJavaMajor = compatible.javaMajor;
+      onLog?.('info', `✅ Using ${compatible.source} Java ${detectedJavaMajor} from ${finalJavaCmd}`);
+    } else if (requiredJavaMajor) {
+      onLog?.('info', `⬇️ No local Java ${requiredJavaMajor}+ found. Installing Eclipse Temurin Java ${requiredJavaMajor} automatically...`);
+      try {
+        const installedJava = await installJavaRuntime(requiredJavaMajor, {
+          onLog,
+          onProgress: opts?.onAssetProgress,
+        });
+        if (installedJava?.ok && installedJava.path) {
+          finalJavaCmd = installedJava.path;
+          detectedJavaMajor = installedJava.major || requiredJavaMajor;
+        }
+      } catch (javaErr) {
+        onLog?.('warn', `⚠️ Automatic Java ${requiredJavaMajor} download failed: ${javaErr?.message || javaErr}`);
+      }
+    }
+    if (!finalJavaCmd) {
       if (compatible.javaCmd) {
         finalJavaCmd = compatible.javaCmd;
         detectedJavaMajor = compatible.javaMajor;
@@ -786,17 +874,6 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
         detectedJavaMajor = detectJavaMajor(finalJavaCmd);
         onLog?.('warn', `⚠️ Using system default Java ${detectedJavaMajor || '?'} from ${finalJavaCmd}`);
       }
-    }
-  } else {
-    const compatible = await findCompatibleJava();
-    if (compatible.javaCmd) {
-      finalJavaCmd = compatible.javaCmd;
-      detectedJavaMajor = compatible.javaMajor;
-      onLog?.('info', `✅ Using ${compatible.source} Java ${detectedJavaMajor} from ${finalJavaCmd}`);
-    } else {
-      finalJavaCmd = resolveJavaCommand('');
-      detectedJavaMajor = detectJavaMajor(finalJavaCmd);
-      onLog?.('warn', `⚠️ Using system default Java ${detectedJavaMajor || '?'} from ${finalJavaCmd}`);
     }
   }
 
@@ -886,6 +963,18 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
   const mainWindow = getMainWindow();
   const settings = await loadLauncherState(app.getPath('userData'));
   const rawBehavior = settings?.settings?.launchBehavior;
+
+  if (settings?.settings?.discordRpc !== false && settings?.settings?.discordClientId) {
+    const instLabel = opts?.instanceName || mcVer;
+    const loaderTag = opts?.loader ? `${mcVer} · ${opts.loader}` : `Minecraft ${mcVer}`;
+    updateDiscordPresence({
+      enabled: true,
+      clientId: settings.settings.discordClientId,
+      details: `Playing ${instLabel}`,
+      state: rawServerAddress ? `Server: ${rawServerAddress}` : loaderTag,
+      startTimestamp: Date.now(),
+    }).catch(() => {});
+  }
   const launchBehavior = (rawBehavior === 'keepOpen' || rawBehavior === 'hide' || rawBehavior === 'close')
     ? rawBehavior
     : (settings?.settings?.keepOpen ? 'keepOpen' : 'hide');
@@ -970,16 +1059,26 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
       }
     }
 
-    if (!runningChildren.size && mainWindow && mainWindow.isDestroyed?.() === false) {
-      const currentSettings = await loadLauncherState(app.getPath('userData'));
-      const currentBehavior = currentSettings?.settings?.launchBehavior || (currentSettings?.settings?.keepOpen ? 'keepOpen' : 'hide');
-      if (currentBehavior === 'hide') {
-        try {
-          mainWindow.webContents.setBackgroundThrottling(false);
-          mainWindow.webContents.setAudioMuted(false);
-          mainWindow.show();
-          mainWindow.focus();
-        } catch (e) { }
+    if (!runningChildren.size) {
+      const currentSettings = await loadLauncherState(app.getPath('userData')).catch(() => null);
+      if (currentSettings?.settings?.discordRpc !== false && currentSettings?.settings?.discordClientId) {
+        updateDiscordPresence({
+          enabled: true,
+          clientId: currentSettings.settings.discordClientId,
+          details: 'In SpaceLauncher',
+          state: 'Idle',
+        }).catch(() => {});
+      }
+      if (mainWindow && mainWindow.isDestroyed?.() === false) {
+        const currentBehavior = currentSettings?.settings?.launchBehavior || (currentSettings?.settings?.keepOpen ? 'keepOpen' : 'hide');
+        if (currentBehavior === 'hide') {
+          try {
+            mainWindow.webContents.setBackgroundThrottling(false);
+            mainWindow.webContents.setAudioMuted(false);
+            mainWindow.show();
+            mainWindow.focus();
+          } catch (e) { }
+        }
       }
     }
   });

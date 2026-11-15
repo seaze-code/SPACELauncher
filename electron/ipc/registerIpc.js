@@ -68,10 +68,23 @@ import {
   migrateBaseToInstance,
 } from '../services/instanceManager.js';
 import { detectAllJavaInstallations } from '../services/javaDetector.js';
+import { installJavaRuntime } from '../services/javaInstaller.js';
+import {
+  listInstanceWorlds,
+  backupInstanceWorld,
+  deleteInstanceWorld,
+  openInstanceWorldFolder,
+  listInstanceScreenshots,
+  getInstanceScreenshotFull,
+  copyInstanceScreenshot,
+  deleteInstanceScreenshot,
+} from '../services/worldsScreenshotsManager.js';
+import { disconnectDiscordRpc, getDiscordRpcStatus, updateDiscordPresence } from '../services/discordRpc.js';
 import {
   pickModpackFile,
   installMrpackArchive,
   installModrinthModpack,
+  exportInstanceArchive,
 } from '../services/modpackInstaller.js';
 
 const activeLoginControllers = new Map();
@@ -253,6 +266,17 @@ export function registerAllIpc() {
     return { canceled: false, path: result.filePaths[0] };
   });
 
+  ipcMain.handle('java:install', async (_, { major = 21 } = {}) => {
+    try {
+      return await installJavaRuntime(major, {
+        onLog: sendLog,
+        onProgress: (p) => sendToRenderer('java:install-progress', p),
+      });
+    } catch (error) {
+      return { ok: false, error: 'JavaInstallFailed', message: error?.message || String(error) };
+    }
+  });
+
   // ── Authentication ──
   ipcMain.handle('minecraft:get-auth-state', async (_, profileKey = 'default', options = {}) => {
     return getMicrosoftAuthState({
@@ -398,6 +422,86 @@ export function registerAllIpc() {
   ipcMain.handle('instances:delete', async (_, id) => deleteInstance(id));
   ipcMain.handle('instances:scan-base', async () => scanBaseDirectory());
   ipcMain.handle('instances:migrate-base', async (_, payload) => migrateBaseToInstance(payload));
+  ipcMain.handle('instances:export', async (_, payload = {}) => {
+    try {
+      return await exportInstanceArchive(payload);
+    } catch (error) {
+      return { error: 'ExportFailed', message: error?.message || String(error) };
+    }
+  });
+
+  // ── Worlds & Screenshots ──
+  ipcMain.handle('worlds:list', async (_, instanceId) => {
+    try {
+      return await listInstanceWorlds(instanceId);
+    } catch (error) {
+      return { ok: false, error: 'WorldsListFailed', message: error?.message || String(error), worlds: [] };
+    }
+  });
+  ipcMain.handle('worlds:backup', async (_, { instanceId, folderName } = {}) => {
+    try {
+      return await backupInstanceWorld(instanceId, folderName);
+    } catch (error) {
+      return { error: 'WorldBackupFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('worlds:delete', async (_, { instanceId, folderName } = {}) => {
+    try {
+      return await deleteInstanceWorld(instanceId, folderName);
+    } catch (error) {
+      return { error: 'WorldDeleteFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('worlds:open-folder', async (_, { instanceId, folderName } = {}) => {
+    try {
+      return await openInstanceWorldFolder(instanceId, folderName);
+    } catch (error) {
+      return { error: 'WorldOpenFailed', message: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('screenshots:list', async (_, instanceId) => {
+    try {
+      return await listInstanceScreenshots(instanceId);
+    } catch (error) {
+      return { ok: false, error: 'ScreenshotsListFailed', message: error?.message || String(error), screenshots: [] };
+    }
+  });
+  ipcMain.handle('screenshots:get-full', async (_, { instanceId, fileName } = {}) => {
+    try {
+      return await getInstanceScreenshotFull(instanceId, fileName);
+    } catch (error) {
+      return { error: 'ScreenshotReadFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('screenshots:copy', async (_, { instanceId, fileName } = {}) => {
+    try {
+      return await copyInstanceScreenshot(instanceId, fileName);
+    } catch (error) {
+      return { error: 'ScreenshotCopyFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('screenshots:delete', async (_, { instanceId, fileName } = {}) => {
+    try {
+      return await deleteInstanceScreenshot(instanceId, fileName);
+    } catch (error) {
+      return { error: 'ScreenshotDeleteFailed', message: error?.message || String(error) };
+    }
+  });
+
+  // ── Discord Rich Presence ──
+  ipcMain.handle('discord:update-presence', async (_, payload = {}) => {
+    try {
+      if (payload?.enabled === false) {
+        disconnectDiscordRpc();
+        return getDiscordRpcStatus();
+      }
+      return await updateDiscordPresence(payload);
+    } catch {
+      return getDiscordRpcStatus();
+    }
+  });
+  ipcMain.handle('discord:get-status', async () => getDiscordRpcStatus());
   ipcMain.handle('instances:pick-image', async () => {
     const win = getMainWindow();
     const result = await dialog.showOpenDialog(win || undefined, {

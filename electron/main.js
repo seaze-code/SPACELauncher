@@ -5,6 +5,7 @@ import { createMainWindow } from './services/windowManager.js';
 import { registerAllIpc } from './ipc/registerIpc.js';
 import { checkForLauncherUpdate } from './services/updater.js';
 import { loadLauncherState } from '../src/lib/launcherState.js';
+import { disconnectDiscordRpc, updateDiscordPresence } from './services/discordRpc.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,10 +61,18 @@ async function init() {
     electronDir: __dirname,
   });
 
-  // Auto-check for updates if enabled in settings
+  // Auto-check for updates & initialize Discord Rich Presence if enabled
   setTimeout(async () => {
     try {
       const state = await loadLauncherState(app.getPath('userData'));
+      if (state.settings?.discordRpc !== false && state.settings?.discordClientId) {
+        updateDiscordPresence({
+          enabled: true,
+          clientId: state.settings.discordClientId,
+          details: 'In SpaceLauncher',
+          state: 'Idle',
+        }).catch(() => {});
+      }
       if (state.settings?.autoUpdate !== false) {
         checkForLauncherUpdate({
           onEvent: (channel, payload) => {
@@ -82,6 +91,10 @@ if (gotTheLock) {
     console.error('[SpaceLauncher] init failed:', err);
   }));
 }
+
+app.on('will-quit', () => {
+  disconnectDiscordRpc();
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {

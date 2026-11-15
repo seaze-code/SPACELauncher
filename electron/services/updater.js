@@ -1,6 +1,7 @@
 import { app, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { loadLauncherState } from '../../src/lib/launcherState.js';
@@ -241,11 +242,121 @@ export async function launchDownloadedUpdate(filePath) {
   return { ok: true, launched: false, path: resolvedPath };
 }
 
+function isAppAsarWritable() {
+  try {
+    if (!app.isPackaged || !process.resourcesPath) return false;
+    const targetAsar = path.join(process.resourcesPath, 'app.asar');
+    if (!fs.existsSync(targetAsar)) return false;
+    fs.accessSync(process.resourcesPath, fs.constants.W_OK);
+    fs.accessSync(targetAsar, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function applyDeltaAsarUpdate({ stagedAsarPath, expectedSha256 = '' }) {
+  const targetAsar = path.join(process.resourcesPath, 'app.asar');
+  if (expectedSha256) {
+    const fileBuf = await fs.promises.readFile(stagedAsarPath);
+    const actualHash = crypto.createHash('sha256').update(fileBuf).digest('hex').toLowerCase();
+    if (actualHash !== String(expectedSha256).trim().toLowerCase()) {
+      throw new Error('Delta update SHA-256 verification failed.');
+    }
+  }
+
+  const currentPid = process.pid;
+  const execPath = process.execPath;
+
+  if (process.platform === 'win32') {
+    const esc = (p) => String(p).replace(/'/g, "''");
+    const psScriptPath = path.join(app.getPath('temp'), `spacelauncher-delta-${currentPid}.ps1`);
+    const psLines = [
+      `while (Get-Process -Id ${currentPid} -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }`,
+      `Start-Sleep -Milliseconds 300`,
+      `$target = '${esc(targetAsar)}'`,
+      `$staged = '${esc(stagedAsarPath)}'`,
+      `$backup = '${esc(targetAsar)}.bak'`,
+      `try {`,
+      `  if (Test-Path $target) { Copy-Item -Path $target -Destination $backup -Force }`,
+      `  Move-Item -Path $staged -Destination $target -Force`,
+      `  Remove-Item -Path $backup -Force -ErrorAction SilentlyContinue`,
+      `} catch {`,
+      `  if (Test-Path $backup) { Move-Item -Path $backup -Destination $target -Force -ErrorAction SilentlyContinue }`,
+      `}`,
+      `Start-Process -FilePath '${esc(execPath)}'`,
+      `Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue`,
+    ].join('\r\n');
+    await fs.promises.writeFile(psScriptPath, psLines, 'utf8');
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', psScriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    return { ok: true, launched: true, delta: true, path: targetAsar };
+  }
+
+  const shPath = path.join(app.getPath('temp'), `spacelauncher-delta-${currentPid}.sh`);
+  const shLines = [
+    '#!/bin/sh',
+    `while kill -0 ${currentPid} 2>/dev/null; do sleep 0.25; done`,
+    'sleep 0.3',
+    `TARGET="${targetAsar.replace(/"/g, '\\"')}"`,
+    `STAGED="${stagedAsarPath.replace(/"/g, '\\"')}"`,
+    'BACKUP="${TARGET}.bak"',
+    'if [ -f "$TARGET" ]; then cp -f "$TARGET" "$BACKUP"; fi',
+    'if mv -f "$STAGED" "$TARGET"; then rm -f "$BACKUP"; else [ -f "$BACKUP" ] && mv -f "$BACKUP" "$TARGET"; fi',
+    process.platform === 'darwin' && execPath.includes('.app')
+      ? `open "${execPath.split('.app')[0]}.app"`
+      : `"${execPath.replace(/"/g, '\\"')}" &`,
+    `rm -f "${shPath.replace(/"/g, '\\"')}"`,
+  ].join('\n');
+  await fs.promises.writeFile(shPath, shLines, { mode: 0o755 });
+  const child = spawn('/bin/sh', [shPath], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return { ok: true, launched: true, delta: true, path: targetAsar };
+}
+
 export async function downloadAndApplyUpdate(updatePayload = {}, { onEvent = null } = {}) {
   const currentVersion = String(app.getVersion() || '').trim();
   const latestVersion = updatePayload.latestVersion || '';
+  const deltaAsset = updatePayload.isDelta ? updatePayload.deltaAsset : null;
   const asset = updatePayload.asset;
   const updaterStrings = await getUpdaterStrings(await getPreferredLanguage());
+
+  if (deltaAsset?.browser_download_url && isAppAsarWritable()) {
+    onEvent?.('minecraft:update-status', {
+      phase: 'downloading',
+      currentVersion,
+      latestVersion,
+      assetName: deltaAsset.name,
+      isDelta: true,
+      message: formatI18nMessage(updaterStrings.downloading, { assetName: `${deltaAsset.name} (Delta)` }),
+    });
+
+    const updatesDir = path.join(app.getPath('userData'), 'updates');
+    await fs.promises.mkdir(updatesDir, { recursive: true });
+    const stagedPath = path.join(updatesDir, `app-${latestVersion}.asar.next`);
+    try { await fs.promises.rm(stagedPath, { force: true }).catch(() => { }); } catch { }
+
+    await downloadFileToPath(deltaAsset.browser_download_url, stagedPath, {
+      onProgress: ({ loaded, total, percent }) => {
+        onEvent?.('minecraft:update-progress', { phase: 'downloading', loaded, total, percent, currentVersion, latestVersion, assetName: deltaAsset.name, isDelta: true });
+      },
+    });
+
+    onEvent?.('minecraft:update-status', { phase: 'launching', currentVersion, latestVersion, assetName: deltaAsset.name, isDelta: true, message: updaterStrings.launching });
+    const swapRes = await applyDeltaAsarUpdate({
+      stagedAsarPath: stagedPath,
+      expectedSha256: updatePayload.deltaSha256 || '',
+    });
+    onEvent?.('minecraft:update-complete', { phase: 'complete', currentVersion, latestVersion, assetName: deltaAsset.name, isDelta: true, path: swapRes.path });
+    setTimeout(() => {
+      app.quit();
+    }, 400);
+    return { ok: true, available: true, downloaded: true, isDelta: true, path: swapRes.path, currentVersion, latestVersion };
+  }
 
   if (!asset || !asset.browser_download_url) {
     onEvent?.('minecraft:update-status', { phase: 'release-page', currentVersion, latestVersion, message: updaterStrings.openingReleasePage });
@@ -320,6 +431,30 @@ export async function checkForLauncherUpdate({ onEvent = null } = {}) {
   }
 
   const asset = pickUpdateAsset(release);
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const deltaAsarAsset = assets.find(a => String(a?.name || '').toLowerCase() === 'spacelauncher-app.asar');
+  const deltaManifestAsset = assets.find(a => String(a?.name || '').toLowerCase() === 'delta-manifest.json');
+
+  let isDelta = false;
+  let deltaSha256 = '';
+  if (deltaAsarAsset?.browser_download_url && deltaManifestAsset?.browser_download_url && isAppAsarWritable()) {
+    try {
+      const mResp = await fetchWithRetry(
+        deltaManifestAsset.browser_download_url,
+        { headers: { 'User-Agent': UPDATER_USER_AGENT } },
+        { retries: 1, timeoutMs: 8000 }
+      );
+      if (mResp.ok) {
+        const manifest = await mResp.json();
+        const currentElectronMajor = Number(String(process.versions.electron || '').split('.')[0] || 0);
+        if (manifest?.electronMajor && Number(manifest.electronMajor) === currentElectronMajor) {
+          isDelta = true;
+          deltaSha256 = String(manifest.asarSha256 || '').trim();
+        }
+      }
+    } catch { }
+  }
+
   const updateInfo = {
     ok: true,
     available: true,
@@ -328,6 +463,9 @@ export async function checkForLauncherUpdate({ onEvent = null } = {}) {
     releaseNotes: release.body || '',
     releaseUrl: release.html_url || UPDATE_RELEASES_PAGE,
     asset,
+    isDelta,
+    deltaAsset: isDelta ? deltaAsarAsset : null,
+    deltaSha256,
   };
 
   onEvent?.('minecraft:update-available', updateInfo);

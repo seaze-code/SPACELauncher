@@ -8,7 +8,9 @@
     "cancel": "Cancelar",
     "save": "Guardar",
     "delete": "Eliminar",
-    "edit": "Editar"
+    "edit": "Editar",
+    "retry": "Reintentar",
+    "refresh": "Actualizar"
   },
   "sidebar": {
     "profiles": "Perfiles",
@@ -152,8 +154,21 @@
     "noJavaFound": "No se detectaron instalaciones de Java.",
     "selectJavaRuntime": "Seleccionar Java detectado...",
     "browseJava": "Examinar...",
+    "autoInstallJavaLabel": "Instalar Java automáticamente (Adoptium):",
+    "installingJava": "Instalando Java {major}...",
+    "javaInstalledSuccess": "Java {major} instalado y seleccionado",
+    "javaInstallError": "Error al instalar Java: {error}",
+    "discordRpc": "Discord Rich Presence",
+    "discordRpcDesc": "Muestra tu instancia activa y versión de Minecraft en Discord.",
+    "discordClientId": "ID de aplicación de Discord",
+    "discordClientIdDesc": "ID personalizada de Discord (opcional).",
     "theme": "Tema del launcher",
     "themeDesc": "Elige la paleta visual de SpaceLauncher.",
+    "themeSystem": "Sistema (Auto)",
+    "themeLight": "Blanco (Claro)",
+    "themeDark": "Negro (Oscuro)",
+    "systemDetectedLight": "Claro",
+    "systemDetectedDark": "Oscuro",
     "themeObsidian": "Orbital Obsidian",
     "themeNebula": "Cosmic Nebula",
     "themeEmerald": "Aurora Station",
@@ -548,6 +563,7 @@
     "sortName": "Nombre (A-Z)",
     "sortMods": "Más mods",
     "manageContent": "Administrar",
+    "newInstance": "Nueva instancia",
     "browseModrinth": "Añadir de Modrinth",
     "jvmPresets": "Preajustes JVM",
     "jvmPresetDefault": "Por defecto",
@@ -566,7 +582,11 @@
     "refreshMojang": "Actualizar desde Mojang",
     "loaderVersionLabel": "Versión del loader",
     "autoInstallVersion": "Descargar e instalar automáticamente si falta",
-    "versionSearchPlaceholder": "Filtrar versiones de Mojang (ej. 1.21, 1.20.1)..."
+    "versionSearchPlaceholder": "Filtrar versiones de Mojang (ej. 1.21, 1.20.1)...",
+    "quickJoinLabel": "Acceso rápido al servidor (host:port)",
+    "exportMrpack": "Exportar instancia como Modrinth .mrpack",
+    "exportZip": "Exportar copia completa (.zip)",
+    "exportSuccess": "{name} exportado correctamente."
   },
   "accountModal": {
     "manageTitle": "Gestionar Cuenta",
@@ -618,5 +638,24 @@
     "environmentGlobal": "Global .minecraft",
     "readyToLaunch": "Listo para iniciar",
     "installingPhase": "Instalando..."
+  },
+  "worlds": {
+    "tab": "Mundos",
+    "searchPlaceholder": "Buscar mundos guardados...",
+    "emptyTitle": "No hay mundos guardados",
+    "emptyDesc": "Tus mundos de un jugador aparecerán aquí para crear copias .zip.",
+    "backupZip": "Respaldar .zip",
+    "backingUp": "Respaldando...",
+    "backupSuccess": "Respaldo \"{name}\" guardado",
+    "deleteConfirm": "¿Eliminar el mundo \"{name}\"? Esta acción no se puede deshacer."
+  },
+  "screenshots": {
+    "tab": "Capturas",
+    "searchPlaceholder": "Buscar capturas por nombre...",
+    "emptyTitle": "Sin capturas de pantalla",
+    "emptyDesc": "Pulsa F2 en Minecraft para tomar capturas y verlas aquí.",
+    "copy": "Copiar imagen",
+    "copied": "Captura copiada al portapapeles.",
+    "deleteConfirm": "¿Eliminar captura \"{name}\"?"
   }
 }

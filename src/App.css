@@ -8031,11 +8031,21 @@ svg.spin-infinite {
   background: #27272a;
 }
 
+:root[data-theme="light"] .segmented-pills,
 :root[data-theme="light"] .explore-type-selector,
 :root[data-theme="light"] .instances-view-switch {
-  background: rgba(9, 9, 11, 0.045);
-  border-color: rgba(9, 9, 11, 0.1);
+  background: rgba(9, 9, 11, 0.055);
+  border-color: rgba(9, 9, 11, 0.12);
   box-shadow: none;
+}
+
+:root[data-theme="light"] .segmented-pill {
+  color: #3f3f46;
+}
+
+:root[data-theme="light"] .segmented-pill:hover {
+  color: #09090b;
+  background: rgba(9, 9, 11, 0.06);
 }
 
 :root[data-theme="light"] .category-pill {
@@ -8230,4 +8240,324 @@ svg.spin-infinite {
 
 :root[data-theme="light"] .toggle-switch.on .toggle-thumb {
   background: #ffffff;
+}
+
+/* ── AUTO-INSTALL JAVA CHIPS ── */
+.java-install-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.java-install-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.java-install-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.java-install-chip {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  gap: 5px;
+}
+
+.java-install-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-subtle);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.java-install-status.error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #fca5a5;
+}
+
+.java-install-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.java-install-bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 999px;
+  transition: width 180ms ease;
+}
+
+/* ── WORLDS TAB ── */
+.worlds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.world-row-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--duration-fast) ease, background-color var(--duration-fast) ease;
+}
+
+.world-row-card:hover {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: var(--border-strong);
+}
+
+.world-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.world-row-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.world-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.world-row-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.world-row-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.world-row-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.world-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── SCREENSHOTS TAB & LIGHTBOX ── */
+.screenshots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.screenshot-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  transition: transform var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+
+.screenshot-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.screenshot-thumb-btn {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.screenshot-thumb-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 220ms ease;
+}
+
+.screenshot-card:hover .screenshot-thumb-btn img {
+  transform: scale(1.03);
+}
+
+.screenshot-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.screenshot-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.screenshot-card-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.screenshot-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screenshot-card-size {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.screenshot-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.screenshot-lightbox-modal {
+  width: min(92vw, 960px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  gap: 12px;
+}
+
+.screenshot-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.screenshot-lightbox-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screenshot-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.screenshot-lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  max-height: calc(90vh - 96px);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.screenshot-lightbox-body img {
+  max-width: 100%;
+  max-height: calc(90vh - 96px);
+  object-fit: contain;
+  display: block;
+}
+
+/* Light theme overrides for Worlds / Screenshots / Java install */
+:root[data-theme="light"] .world-row-card,
+:root[data-theme="light"] .screenshot-card {
+  background: #ffffff;
+  border-color: rgba(9, 9, 11, 0.1);
+}
+
+:root[data-theme="light"] .world-row-card:hover,
+:root[data-theme="light"] .screenshot-card:hover {
+  background: #fafafa;
+  border-color: rgba(9, 9, 11, 0.22);
+}
+
+:root[data-theme="light"] .world-row-thumb,
+:root[data-theme="light"] .java-install-bar {
+  background: rgba(9, 9, 11, 0.06);
+  border-color: rgba(9, 9, 11, 0.1);
+}
+
+:root[data-theme="light"] .java-install-status {
+  background: rgba(9, 9, 11, 0.04);
+  border-color: rgba(9, 9, 11, 0.1);
+  color: #18181b;
+}
+
+:root[data-theme="light"] .java-install-status.error {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.24);
+  color: #b91c1c;
+}
+
+:root[data-theme="light"] .screenshot-thumb-btn,
+:root[data-theme="light"] .screenshot-lightbox-body {
+  background: rgba(9, 9, 11, 0.05);
 }
