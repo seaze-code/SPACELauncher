@@ -1,13 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useI18n } from '../../context/I18nContext';
 import { ICONS } from '../../constants/icons';
 import { Icon, Toggle } from '../common/CommonComponents';
 import { LoaderLogo } from '../common/LoaderLogo';
+import { SpaceLogo } from '../common/SpaceLogo';
+import { JavaRuntimePicker } from '../common/JavaRuntimePicker';
+import { SPACE_THEMES } from '../../constants/themes';
+import { JVM_PRESETS } from '../../constants/jvmPresets';
 import { launcher } from '../../services/launcherClient';
 import { getInstallInfo, loadLauncherCatalog } from '../../lib/minecraftLauncher';
-import logoIcon from '/icon.webp';
 
-export function ProfileModal({ mode = 'new', profile, versions, systemTotalRam: initialSystemRam, onClose, onSave }) {
+export function ProfileModal({ mode = 'new', profile, versions = [], versionCatalog = [], systemTotalRam: initialSystemRam, onClose, onSave }) {
   const { t } = useI18n();
   const [detectedRam, setDetectedRam] = useState(
     typeof initialSystemRam === 'number' && initialSystemRam > 0
@@ -116,17 +119,43 @@ export function ProfileModal({ mode = 'new', profile, versions, systemTotalRam: 
         </div>
 
         <div className="modal-field">
-          <label className="modal-label">
-            <span>{t('profile.version')}</span>
-          </label>
-          {versions.length > 0 ? (
+          <label className="modal-label">{t('profile.version')}</label>
+          {versions.length > 0 || versionCatalog.length > 0 ? (
             <select className="modal-select" value={version} onChange={e => setVersion(e.target.value)}>
               <option value="">{t('profile.useLauncherSelector')}</option>
-              {versions.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+              {versions.length > 0 && (
+                <optgroup label={t('instances.installedGroup')}>
+                  {versions.map(v => <option key={`p-inst-${v.id}`} value={v.id}>{v.label || v.id}</option>)}
+                </optgroup>
+              )}
+              {versionCatalog.some(v => v.type === 'snapshot' && !versions.some(iv => iv.id === (v.mcVer || v.id))) && (
+                <optgroup label={t('instances.snapshotsGroup')}>
+                  {versionCatalog
+                    .filter(v => v.type === 'snapshot' && !versions.some(iv => iv.id === (v.mcVer || v.id)))
+                    .map(v => {
+                      const mcVer = v.mcVer || v.id;
+                      return (
+                        <option key={`p-snap-${v.id}`} value={mcVer}>{mcVer}</option>
+                      );
+                    })}
+                </optgroup>
+              )}
+              {versionCatalog.length > 0 && (
+                <optgroup label={t('instances.mojangGroup')}>
+                  {versionCatalog
+                    .filter(v => v.type === 'vanilla' && !versions.some(iv => iv.id === (v.mcVer || v.id)))
+                    .map(v => {
+                      const mcVer = v.mcVer || v.id;
+                      return (
+                        <option key={`p-moj-${v.id}`} value={mcVer}>{mcVer}</option>
+                      );
+                    })}
+                </optgroup>
+              )}
             </select>
           ) : (
             <div className="modal-input" style={{ display: 'flex', alignItems: 'center', minHeight: 34 }}>
-              {t('profile.noVersionsInstalled')}
+              {t('instances.loadingMojang')}
             </div>
           )}
         </div>
@@ -168,6 +197,18 @@ export function ProfileModal({ mode = 'new', profile, versions, systemTotalRam: 
 
         <div className="modal-field">
           <label className="modal-label">{t('profile.jvmArguments')}</label>
+          <div className="jvm-preset-row">
+            {JVM_PRESETS.map(preset => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`jvm-preset-chip ${jvmArguments.trim() === preset.args ? 'active' : ''}`}
+                onClick={() => setJvmArguments(preset.args)}
+              >
+                {t(preset.labelKey) || preset.fallbackLabel}
+              </button>
+            ))}
+          </div>
           <input
             className="modal-input"
             value={jvmArguments}
@@ -178,10 +219,9 @@ export function ProfileModal({ mode = 'new', profile, versions, systemTotalRam: 
 
         <div className="modal-field">
           <label className="modal-label">{t('profile.customJVMPath')}</label>
-          <input
-            className="modal-input"
+          <JavaRuntimePicker
             value={javaPath}
-            onChange={e => setJavaPath(e.target.value)}
+            onChange={setJavaPath}
             placeholder={t('profile.customJVMPathPlaceholder')}
           />
         </div>
@@ -201,9 +241,12 @@ export function InstallModal({ initialType = 'minecraft', installTargets, showSn
   const { t } = useI18n();
   const [selectedType, setSelectedType] = useState(initialType);
   const [loading, setLoading] = useState(false);
+  const attemptedFetchRef = useRef(false);
+  const attemptedSnapshotFetchRef = useRef(false);
   const info = getInstallInfo(selectedType, installTargets);
   const usesGameAndLoader = selectedType === 'fabric' || selectedType === 'quilt' || selectedType === 'forge' || selectedType === 'neoforge';
   const hasVersions = usesGameAndLoader ? (info.gameVersions?.length > 0) : (info.versions?.length > 0);
+  const hasSnapshotInTargets = (installTargets?.minecraft?.versions || []).some(v => !/^\d+\.\d+(?:\.\d+)?$/.test(v));
 
   const fetchCatalogForSnapshots = useCallback(async (snapshotsEnabled) => {
     setLoading(true);
@@ -224,10 +267,17 @@ export function InstallModal({ initialType = 'minecraft', installTargets, showSn
   }, [onCatalogLoaded]);
 
   useEffect(() => {
-    if (!hasVersions && !loading) {
+    if (!showSnapshots) {
+      attemptedSnapshotFetchRef.current = false;
+    }
+    const needsInitial = !hasVersions && !attemptedFetchRef.current;
+    const needsSnapshots = Boolean(showSnapshots) && !hasSnapshotInTargets && !attemptedSnapshotFetchRef.current;
+    if ((needsInitial || needsSnapshots) && !loading) {
+      if (needsInitial) attemptedFetchRef.current = true;
+      if (needsSnapshots) attemptedSnapshotFetchRef.current = true;
       fetchCatalogForSnapshots(showSnapshots);
     }
-  }, [hasVersions, loading, showSnapshots, fetchCatalogForSnapshots]);
+  }, [hasVersions, hasSnapshotInTargets, loading, showSnapshots, fetchCatalogForSnapshots]);
 
   const [gameVersion, setGameVersion] = useState(usesGameAndLoader ? (info.gameVersions?.[0] || '') : (info.versions?.[0] || ''));
   const [loaderVersion, setLoaderVersion] = useState(usesGameAndLoader ? ((info.loadersByGameVersion?.[info.gameVersions?.[0] || ''] || [])[0] || '') : '');
@@ -262,8 +312,17 @@ export function InstallModal({ initialType = 'minecraft', installTargets, showSn
 
   const handleToggle = async () => {
     const nextVal = !showSnapshots;
-    onToggleSnapshots?.(nextVal);
-    await fetchCatalogForSnapshots(nextVal);
+    attemptedSnapshotFetchRef.current = false;
+    setLoading(true);
+    try {
+      if (onToggleSnapshots) {
+        await onToggleSnapshots(nextVal);
+      } else {
+        await fetchCatalogForSnapshots(nextVal);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loaderOptions = usesGameAndLoader ? (info.loadersByGameVersion?.[gameVersion] || []) : [];
@@ -387,10 +446,13 @@ export function SettingsModal({
   onCheckUpdates,
   onOpenAbout,
   onOpenMinecraftDirectory,
+  onOpenLogsDirectory,
+  onClearLogs,
   language,
   onLanguageChange,
 }) {
   const { t } = useI18n();
+  const activeTheme = settings.theme || 'obsidian';
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -399,6 +461,36 @@ export function SettingsModal({
         <div className="modal-subtitle">{t('settings.subtitle')}</div>
 
         <div className="settings-list">
+          <div className="modal-field settings-field">
+            <label className="modal-label">{t('settings.theme')}</label>
+            <div className="settings-row-sub">{t('settings.themeDesc')}</div>
+            <div className="theme-swatch-grid">
+              {SPACE_THEMES.map(themeItem => {
+                const isSelected = activeTheme === themeItem.id;
+                return (
+                  <button
+                    key={themeItem.id}
+                    type="button"
+                    className={`theme-swatch-card ${isSelected ? 'active' : ''}`}
+                    onClick={() => onChange('theme', themeItem.id)}
+                  >
+                    <span
+                      className="theme-swatch-dot"
+                      style={{
+                        background: themeItem.accent,
+                        boxShadow: `0 0 12px ${themeItem.accent}66`,
+                      }}
+                    />
+                    <span className="theme-swatch-name">
+                      {t(themeItem.nameKey) || themeItem.fallbackName}
+                    </span>
+                    {isSelected && <Icon d={ICONS.check} size={13} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="settings-option">
             <div className="settings-option-copy">
               <div className="settings-option-title">{t('settings.language')}</div>
@@ -406,9 +498,26 @@ export function SettingsModal({
             </div>
             <select className="modal-select settings-option-control settings-language-select" value={language} onChange={e => onLanguageChange(e.target.value)}>
               <option value="en">{t('settings.english')}</option>
+              <option value="th">{t('settings.thai')}</option>
               <option value="es">{t('settings.spanish')}</option>
               <option value="fr">{t('settings.french')}</option>
             </select>
+          </div>
+
+          <div className="settings-option">
+            <div className="settings-option-copy">
+              <div className="settings-option-title">{t('settings.compactMode')}</div>
+              <div className="settings-option-description">{t('settings.compactModeDesc')}</div>
+            </div>
+            <Toggle on={Boolean(settings.compactMode)} onToggle={() => onChange('compactMode', !settings.compactMode)} />
+          </div>
+
+          <div className="settings-option">
+            <div className="settings-option-copy">
+              <div className="settings-option-title">{t('settings.reduceMotion')}</div>
+              <div className="settings-option-description">{t('settings.reduceMotionDesc')}</div>
+            </div>
+            <Toggle on={Boolean(settings.reduceMotion)} onToggle={() => onChange('reduceMotion', !settings.reduceMotion)} />
           </div>
 
           <div className="settings-option">
@@ -481,10 +590,9 @@ export function SettingsModal({
           <div className="modal-field settings-field">
             <label className="modal-label">{t('settings.javaPath')}</label>
             <div className="settings-row-sub">{t('settings.javaPathDesc')}</div>
-            <input
-              className="modal-input"
+            <JavaRuntimePicker
               value={settings.javaPath || ''}
-              onChange={e => onChange('javaPath', e.target.value)}
+              onChange={nextPath => onChange('javaPath', nextPath)}
               placeholder={t('settings.autoDetect')}
             />
           </div>
@@ -494,6 +602,12 @@ export function SettingsModal({
           <div className="settings-modal-links">
             <button className="btn-ghost" type="button" onClick={onOpenAbout}>{t('settings.aboutButton')}</button>
             <button className="btn-ghost" type="button" onClick={onCheckUpdates}>{t('settings.checkForUpdates')}</button>
+            {onOpenLogsDirectory && (
+              <button className="btn-ghost" type="button" onClick={onOpenLogsDirectory}>{t('settings.openLogsDirectory')}</button>
+            )}
+            {onClearLogs && (
+              <button className="btn-ghost" type="button" onClick={onClearLogs}>{t('settings.clearLogs')}</button>
+            )}
           </div>
           <button className="btn-primary" onClick={onClose}>{t('settings.done')}</button>
         </div>
@@ -504,7 +618,7 @@ export function SettingsModal({
 
 export function AboutModal({ appVersion, onClose, onOpenSourceCode, onOpenReleases }) {
   const { t } = useI18n();
-  const versionLabel = appVersion || t('settings.devBuild');
+  const versionLabel = appVersion || '1.0.0';
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -512,12 +626,7 @@ export function AboutModal({ appVersion, onClose, onOpenSourceCode, onOpenReleas
         {/* Header Hero */}
         <div className="about-hero">
           <div className="about-logo-wrapper">
-            <img
-              src={logoIcon}
-              alt="OpenLauncher"
-              className="about-app-logo"
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            />
+            <SpaceLogo size={48} className="about-app-logo" />
           </div>
           <div className="about-hero-details">
             <div className="about-hero-title-row">
@@ -531,10 +640,9 @@ export function AboutModal({ appVersion, onClose, onOpenSourceCode, onOpenReleas
           </button>
         </div>
 
-        {/* Developer / Project Metadata */}
         <div className="about-meta-box">
           <div className="about-meta-row">
-            <span className="about-meta-label">{t('settings.developedByLabel', { developer: 'CesarGarza55' })}</span>
+            <span className="about-meta-label">{t('settings.aboutPlatform')}</span>
             <span className="about-meta-pill">{t('settings.licenseLabel', { license: 'GPL-2.0' })}</span>
           </div>
         </div>

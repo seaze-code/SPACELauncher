@@ -6,17 +6,40 @@ import { Buffer } from 'buffer';
 import process from 'process';
 import { safeStorage } from 'electron';
 
-// OpenLauncher provides a default Microsoft client ID for convenience, but developers can override it with their own by setting the `VITE_MICROSOFT_CLIENT_ID` or `MICROSOFT_CLIENT_ID` environment variable.
-// If you are building your own launcher or application, it is recommended to register your own Microsoft application and use its client ID for authentication.
-// Please refer to https://github.com/CesarGarza55/OpenLauncher#build-from-source to learn how to register your own Microsoft application and obtain a client ID.
+// SpaceLauncher provides a default Microsoft client ID for convenience, and developers can override it via `VITE_MICROSOFT_CLIENT_ID` or `MICROSOFT_CLIENT_ID`.
 export const DEFAULT_MICROSOFT_CLIENT_ID = '3f59fbe7-2c4b-4343-9a61-c03104ddaedf';
 export const MICROSOFT_CLIENT_ID = process.env.VITE_MICROSOFT_CLIENT_ID
   || process.env.MICROSOFT_CLIENT_ID
   || DEFAULT_MICROSOFT_CLIENT_ID;
 
 const DEFAULT_REDIRECT_URL = 'http://localhost:8080/callback';
-const LOGIN_SUCCESS_REDIRECT_URL = 'https://openlauncher.codevbox.com/login-success';
-const LOGIN_FAILED_REDIRECT_URL = 'https://openlauncher.codevbox.com/login-failed';
+
+function buildAuthCallbackHtml({ success, message }) {
+  const title = success ? 'Signed in to SpaceLauncher' : 'Authentication Failed';
+  const accent = success ? '#38bdf8' : '#f87171';
+  const detail = message || (success ? 'You can safely close this tab and return to SpaceLauncher.' : 'Please return to SpaceLauncher and try signing in again.');
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${title}</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #090b10; color: #e2e8f0; display: grid; place-items: center; height: 100vh; }
+    .card { border: 1px solid #1e293b; background: #0f131c; border-radius: 14px; padding: 32px 36px; text-align: center; max-width: 380px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+    .badge { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 999px; border: 1px solid ${accent}44; background: ${accent}18; color: ${accent}; font-weight: 700; font-size: 18px; margin-bottom: 14px; }
+    h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; color: #f8fafc; }
+    p { margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">${success ? '✓' : '!'}</div>
+    <h1>${title}</h1>
+    <p>${detail}</p>
+  </div>
+</body>
+</html>`;
+}
 
 // In-memory cache for active Minecraft sessions to prevent redundant network calls
 // Shape: Map<profileKey, { accountInfo, expires_at: number }>
@@ -59,7 +82,10 @@ async function readSecureStore(storageDir) {
 
 async function writeSecureStore(storageDir, store) {
   await fs.mkdir(storageDir, { recursive: true });
-  await fs.writeFile(authSecureStorePath(storageDir), JSON.stringify(store, null, 2), 'utf8');
+  const target = authSecureStorePath(storageDir);
+  const tmp = `${target}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
+  await fs.rename(tmp, target);
 }
 
 async function getSecureRefreshToken(profileKey, storageDir) {
@@ -114,7 +140,10 @@ async function readAuthStore(storageDir) {
 
 async function writeAuthStore(storageDir, store) {
   await fs.mkdir(storageDir, { recursive: true });
-  await fs.writeFile(authStorePath(storageDir), JSON.stringify(store, null, 2), 'utf8');
+  const target = authStorePath(storageDir);
+  const tmp = `${target}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
+  await fs.rename(tmp, target);
 }
 
 export async function hasStoredRefreshToken(profileKey, storageDir) {
@@ -247,6 +276,38 @@ async function postJson(url, data, headers = {}) {
   return await res.json();
 }
 
+function formatMinecraftProfileFields(profile) {
+  const skins = Array.isArray(profile?.skins) ? profile.skins : [];
+  const capes = Array.isArray(profile?.capes) ? profile.capes : [];
+  const activeSkin = skins.find(s => String(s?.state || '').toUpperCase() === 'ACTIVE') || skins[0] || null;
+  const activeCape = capes.find(c => String(c?.state || '').toUpperCase() === 'ACTIVE') || null;
+  return {
+    id: profile.id,
+    uuid: profile.id,
+    name: profile.name,
+    skins,
+    capes,
+    skinUrl: activeSkin?.url || '',
+    skinVariant: String(activeSkin?.variant || 'CLASSIC').toLowerCase() === 'slim' ? 'slim' : 'classic',
+    capeId: activeCape?.id || '',
+  };
+}
+
+export async function fetchMinecraftProfileWithToken(mcAccessToken) {
+  const profileRes = await fetch('https://api.minecraftservices.com/minecraft/profile', {
+    headers: { Authorization: `Bearer ${mcAccessToken}` },
+  });
+
+  if (!profileRes.ok) {
+    if (profileRes.status === 404) {
+      throw new Error('This Microsoft account does not own Minecraft Java Edition.');
+    }
+    throw new Error(`Failed to fetch Minecraft profile: ${profileRes.status}`);
+  }
+
+  return await profileRes.json();
+}
+
 export async function buildMinecraftAccountInfoFromAccessToken(msAccessToken, msRefreshToken) {
   // 1. Xbox Live User Authentication
   const xblData = await postJson('https://user.auth.xboxlive.com/user/authenticate', {
@@ -281,7 +342,7 @@ export async function buildMinecraftAccountInfoFromAccessToken(msAccessToken, ms
   const identityToken = `XBL3.0 x=${xstsUhs};${xstsToken}`;
   const mcLoginData = await postJson('https://api.minecraftservices.com/authentication/login_with_xbox', {
     identityToken,
-  }, { 'User-Agent': 'OpenLauncher' });
+  }, { 'User-Agent': 'SpaceLauncher/1.0.0' });
 
   const mcAccessToken = mcLoginData?.access_token;
   if (!mcAccessToken) throw new Error('Minecraft login failed');
@@ -289,26 +350,13 @@ export async function buildMinecraftAccountInfoFromAccessToken(msAccessToken, ms
   const expiresInSec = Number(mcLoginData?.expires_in) || 86400; // standard 24 hours
   const expiresAt = Date.now() + (expiresInSec * 1000);
 
-  // 4. Minecraft Profile Details
-  const profileRes = await fetch('https://api.minecraftservices.com/minecraft/profile', {
-    headers: { Authorization: `Bearer ${mcAccessToken}` },
-  });
-
-  if (!profileRes.ok) {
-    if (profileRes.status === 404) {
-      throw new Error('This Microsoft account does not own Minecraft Java Edition.');
-    }
-    throw new Error(`Failed to fetch Minecraft profile: ${profileRes.status}`);
-  }
-
-  const profile = await profileRes.json();
+  // 4. Minecraft Profile Details (name, uuid, skins, capes)
+  const profile = await fetchMinecraftProfileWithToken(mcAccessToken);
 
   return {
     access_token: mcAccessToken,
     expires_at: expiresAt,
-    id: profile.id,
-    uuid: profile.id,
-    name: profile.name,
+    ...formatMinecraftProfileFields(profile),
     refresh_token: msRefreshToken,
     userType: 'msa',
   };
@@ -401,6 +449,14 @@ export async function refreshMicrosoftSession({
 }
 
 async function waitForCallback({ port, timeoutMs, abortSignal }) {
+  if (callbackServer) {
+    try {
+      callbackServer.closeAllConnections?.();
+      callbackServer.close();
+    } catch {}
+    callbackServer = null;
+  }
+
   return new Promise((resolve, reject) => {
     let server = null;
     let timer = null;
@@ -410,16 +466,18 @@ async function waitForCallback({ port, timeoutMs, abortSignal }) {
       if (finished) return;
       finished = true;
       if (timer) clearTimeout(timer);
-      if (server) {
+      const active = server;
+      if (callbackServer === active) {
+        callbackServer = null;
+      }
+      if (active) {
         try {
-          server.close();
+          active.closeAllConnections?.();
+          active.close();
         } catch {
           // Ignore server close error on cleanup
         }
         server = null;
-      }
-      if (callbackServer === server) {
-        callbackServer = null;
       }
     };
 
@@ -447,14 +505,14 @@ async function waitForCallback({ port, timeoutMs, abortSignal }) {
       const error = requestUrl.searchParams.get('error');
 
       if (error) {
-        res.writeHead(302, { Location: LOGIN_FAILED_REDIRECT_URL });
-        res.end();
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(buildAuthCallbackHtml({ success: false, message: `Microsoft reported: ${error}` }));
         onReject(new Error(error));
         return;
       }
 
-      res.writeHead(302, { Location: LOGIN_SUCCESS_REDIRECT_URL });
-      res.end();
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildAuthCallbackHtml({ success: true }));
       onResolve({ code, state });
     });
 
@@ -631,4 +689,108 @@ export async function logoutMicrosoft({ profileKey, storageDir } = {}) {
   const key = String(profileKey || 'default');
   await deleteRefreshToken(key, storageDir);
   return { loggedIn: false, name: '', profileKey: key, hasStoredToken: false };
+}
+
+export async function uploadMicrosoftSkin({
+  profileKey,
+  storageDir,
+  pngBuffer,
+  variant = 'classic',
+  clientId = MICROSOFT_CLIENT_ID,
+} = {}) {
+  const key = String(profileKey || 'default');
+  const session = await refreshMicrosoftSession({ profileKey: key, storageDir, clientId });
+  const normalizedVariant = String(variant).toLowerCase() === 'slim' ? 'slim' : 'classic';
+
+  const form = new FormData();
+  form.append('variant', normalizedVariant);
+  form.append('file', new Blob([pngBuffer], { type: 'image/png' }), 'skin.png');
+
+  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to upload skin (${res.status}): ${errText || res.statusText}`);
+  }
+
+  const updatedProfile = await res.json();
+  const nextAccount = {
+    ...session,
+    ...formatMinecraftProfileFields(updatedProfile),
+  };
+  sessionCache.set(key, nextAccount);
+  return nextAccount;
+}
+
+export async function setMicrosoftActiveCape({
+  profileKey,
+  storageDir,
+  capeId = '',
+  clientId = MICROSOFT_CLIENT_ID,
+} = {}) {
+  const key = String(profileKey || 'default');
+  const session = await refreshMicrosoftSession({ profileKey: key, storageDir, clientId });
+
+  const url = 'https://api.minecraftservices.com/minecraft/profile/capes/active';
+  const res = capeId
+    ? await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ capeId }),
+      })
+    : await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to update cape (${res.status}): ${errText || res.statusText}`);
+  }
+
+  const updatedProfile = await fetchMinecraftProfileWithToken(session.access_token);
+  const nextAccount = {
+    ...session,
+    ...formatMinecraftProfileFields(updatedProfile),
+  };
+  sessionCache.set(key, nextAccount);
+  return nextAccount;
+}
+
+export async function resetMicrosoftSkin({
+  profileKey,
+  storageDir,
+  clientId = MICROSOFT_CLIENT_ID,
+} = {}) {
+  const key = String(profileKey || 'default');
+  const session = await refreshMicrosoftSession({ profileKey: key, storageDir, clientId });
+
+  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins/active', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to reset skin (${res.status}): ${errText || res.statusText}`);
+  }
+
+  const updatedProfile = await fetchMinecraftProfileWithToken(session.access_token);
+  const nextAccount = {
+    ...session,
+    ...formatMinecraftProfileFields(updatedProfile),
+  };
+  sessionCache.set(key, nextAccount);
+  return nextAccount;
 }

@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from 'electron';
+import { app, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -33,13 +33,26 @@ import {
   stopMinecraft,
 } from '../services/minecraftRunner.js';
 import { loadLauncherCatalog } from '../../src/lib/minecraftLauncher.js';
-import { loadMinecraftNews, loadMinecraftArticle } from '../../src/lib/minecraftNews.js';
+import { fetchHomeFeed, fetchPatchNoteDetail } from '../../src/lib/mojangNews.js';
 import { loadLauncherState, saveLauncherState } from '../../src/lib/launcherState.js';
 import {
   getMicrosoftAuthState,
   loginMicrosoftInteractive,
   logoutMicrosoft,
+  uploadMicrosoftSkin,
+  setMicrosoftActiveCape,
+  resetMicrosoftSkin,
 } from '../../src/lib/microsoftAuth.js';
+import {
+  loadSkinsLibrary,
+  fetchTextureAsDataUri,
+  importUsernameSkin,
+  pickSkinPngFile,
+  saveCustomSkin,
+  setProfileLocalSkin,
+  deleteCustomSkin,
+  decodeDataUriToPngBuffer,
+} from '../services/skinManager.js';
 import {
   searchModrinthProjects,
   getModrinthProject,
@@ -49,10 +62,28 @@ import {
   readAllInstances,
   createInstance,
   updateInstance,
+  duplicateInstance,
   deleteInstance,
   scanBaseDirectory,
   migrateBaseToInstance,
 } from '../services/instanceManager.js';
+import { detectAllJavaInstallations } from '../services/javaDetector.js';
+import {
+  pickModpackFile,
+  installMrpackArchive,
+  installModrinthModpack,
+} from '../services/modpackInstaller.js';
+
+const activeLoginControllers = new Map();
+
+function isAllowedExternalUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || '').trim());
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' || parsed.protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
 
 export function registerAllIpc() {
   const sendToRenderer = (channel, payload) => {
@@ -75,7 +106,12 @@ export function registerAllIpc() {
     else win.maximize();
   });
   ipcMain.handle('window:close', () => getMainWindow()?.close());
-  ipcMain.handle('shell:open-external', (_, url) => shell.openExternal(url));
+  ipcMain.handle('shell:open-external', (_, url) => {
+    if (!isAllowedExternalUrl(url)) {
+      return { error: 'InvalidUrl', message: 'Only http/https/mailto URLs can be opened externally.' };
+    }
+    return shell.openExternal(url);
+  });
 
   // ── Directory and System Information ──
   ipcMain.handle('minecraft:open-root-directory', async () => {
@@ -96,9 +132,13 @@ export function registerAllIpc() {
   ipcMain.handle('app:get-version', () => app.getVersion());
   ipcMain.handle('system:get-info', async () => {
     const totalBytes = os.totalmem();
+    const freeBytes = os.freemem();
     const totalRamGb = Math.max(2, Math.round(totalBytes / (1024 * 1024 * 1024)));
+    const freeRamGb = Math.max(0, Math.round(freeBytes / (1024 * 1024 * 1024)));
     return {
       totalRamGb,
+      freeRamGb,
+      cpuCount: os.cpus()?.length || 4,
       platform: process.platform,
       arch: process.arch,
     };
@@ -121,6 +161,8 @@ export function registerAllIpc() {
     const state = await loadLauncherState(app.getPath('userData'));
     return {
       keepOpen: state.settings?.keepOpen ?? false,
+      launchBehavior: state.settings?.launchBehavior || (state.settings?.keepOpen ? 'keepOpen' : 'hide'),
+      javaPath: state.settings?.javaPath || '',
       showConsole: state.settings?.showConsole ?? true,
       autoUpdate: state.settings?.autoUpdate ?? true,
       showSnapshots: state.settings?.showSnapshots ?? false,
@@ -149,7 +191,7 @@ export function registerAllIpc() {
     }
   });
 
-  // ── Catalog and News ──
+  // ── Catalog ──
   ipcMain.handle('minecraft:get-catalog', async (_, options) => {
     const currentState = await loadLauncherState(app.getPath('userData'));
     const includeSnapshots = options?.includeSnapshots !== undefined
@@ -171,21 +213,44 @@ export function registerAllIpc() {
     return catalog;
   });
 
-  ipcMain.handle('minecraft:get-news', async (_, options = {}) => {
+  ipcMain.handle('minecraft:get-home-feed', async (_, options = {}) => {
     try {
-      const limit = Number(options?.limit) > 0 ? Number(options.limit) : 60;
-      return await loadMinecraftNews({ limit });
+      return await fetchHomeFeed({ forceRefresh: Boolean(options?.forceRefresh) });
     } catch (error) {
-      return { error: error?.message || 'Failed to load Minecraft news.', items: [], sourceUrl: 'https://www.minecraft.net/en-us/articles' };
+      return { ok: false, error: 'HomeFeedFailed', message: error?.message || String(error), news: [], patchNotes: [] };
     }
   });
 
-  ipcMain.handle('minecraft:get-article', async (_, url) => {
+  ipcMain.handle('minecraft:get-patch-note-detail', async (_, contentPath) => {
     try {
-      return await loadMinecraftArticle(url);
+      return await fetchPatchNoteDetail(contentPath);
     } catch (error) {
-      return { error: error?.message || 'Failed to load article content.', url };
+      return { ok: false, error: 'PatchNoteFailed', message: error?.message || String(error) };
     }
+  });
+
+  // ── Java Runtime Discovery ──
+  ipcMain.handle('java:detect-all', async (_, options = {}) => {
+    try {
+      const list = await detectAllJavaInstallations({ forceRefresh: Boolean(options?.forceRefresh) });
+      return { ok: true, installations: list };
+    } catch (error) {
+      return { error: 'JavaScanFailed', message: error?.message || String(error), installations: [] };
+    }
+  });
+
+  ipcMain.handle('java:pick-executable', async () => {
+    const win = getMainWindow();
+    const isWin = process.platform === 'win32';
+    const result = await dialog.showOpenDialog(win || undefined, {
+      title: 'Select Java Executable',
+      properties: ['openFile'],
+      filters: isWin
+        ? [{ name: 'Java Executable', extensions: ['exe'] }, { name: 'All Files', extensions: ['*'] }]
+        : [{ name: 'All Files', extensions: ['*'] }],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
+    return { canceled: false, path: result.filePaths[0] };
   });
 
   // ── Authentication ──
@@ -197,31 +262,139 @@ export function registerAllIpc() {
     });
   });
 
-  ipcMain.handle('minecraft:login', async (event, profileKey = 'default', abortSignal) => {
+  ipcMain.handle('minecraft:login', async (event, profileKey = 'default') => {
+    const key = String(profileKey || 'default');
+    const prev = activeLoginControllers.get(key);
+    if (prev) {
+      try { prev.abort(); } catch {}
+    }
     const controller = new AbortController();
+    activeLoginControllers.set(key, controller);
     try {
       return await loginMicrosoftInteractive({
-        profileKey,
+        profileKey: key,
         storageDir: app.getPath('userData'),
-        openExternal: url => shell.openExternal(url),
-        abortSignal: abortSignal || controller.signal,
+        openExternal: url => (isAllowedExternalUrl(url) ? shell.openExternal(url) : Promise.reject(new Error('Invalid OAuth URL'))),
+        abortSignal: controller.signal,
       });
     } catch (error) {
       if (error?.message === 'Login cancelled by user') {
         return { error: error.message, cancelled: true };
       }
       return { error: error?.message || 'Microsoft login failed.' };
+    } finally {
+      if (activeLoginControllers.get(key) === controller) {
+        activeLoginControllers.delete(key);
+      }
     }
+  });
+
+  ipcMain.handle('minecraft:login-cancel', async (_, profileKey = 'default') => {
+    const key = String(profileKey || 'default');
+    const controller = activeLoginControllers.get(key);
+    if (controller) {
+      try { controller.abort(); } catch {}
+      activeLoginControllers.delete(key);
+      return { ok: true };
+    }
+    for (const [k, c] of activeLoginControllers.entries()) {
+      try { c.abort(); } catch {}
+      activeLoginControllers.delete(k);
+    }
+    return { ok: true };
   });
 
   ipcMain.handle('minecraft:logout', async (_, profileKey = 'default') => {
     return logoutMicrosoft({ profileKey, storageDir: app.getPath('userData') });
   });
 
+  // ── Skins & Cosmetics ──
+  ipcMain.handle('skin:get-library', async () => loadSkinsLibrary(app.getPath('userData')));
+  ipcMain.handle('skin:fetch-texture', async (_, textureUrl) => {
+    try {
+      return await fetchTextureAsDataUri(textureUrl, app.getPath('userData'));
+    } catch (error) {
+      return { error: 'TextureFetchFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:import-username', async (_, username) => {
+    try {
+      return await importUsernameSkin(username, app.getPath('userData'));
+    } catch (error) {
+      return { error: 'SkinImportFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:pick-file', async () => {
+    try {
+      return await pickSkinPngFile(getMainWindow());
+    } catch (error) {
+      return { canceled: true, error: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:save-local', async (_, payload) => {
+    try {
+      return await saveCustomSkin({ userDataDir: app.getPath('userData'), ...payload });
+    } catch (error) {
+      return { error: 'SaveSkinFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:set-profile-local', async (_, payload) => {
+    try {
+      return await setProfileLocalSkin({ userDataDir: app.getPath('userData'), ...payload });
+    } catch (error) {
+      return { error: 'SetLocalSkinFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:delete-local', async (_, id) => {
+    try {
+      return await deleteCustomSkin({ userDataDir: app.getPath('userData'), id });
+    } catch (error) {
+      return { error: 'DeleteSkinFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:apply-microsoft', async (_, { profileKey = 'default', dataUri, variant = 'classic' }) => {
+    try {
+      const pngBuffer = decodeDataUriToPngBuffer(dataUri);
+      const account = await uploadMicrosoftSkin({
+        profileKey,
+        storageDir: app.getPath('userData'),
+        pngBuffer,
+        variant,
+      });
+      return { ok: true, account };
+    } catch (error) {
+      return { error: 'ApplyMicrosoftSkinFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:set-microsoft-cape', async (_, { profileKey = 'default', capeId = '' }) => {
+    try {
+      const account = await setMicrosoftActiveCape({
+        profileKey,
+        storageDir: app.getPath('userData'),
+        capeId,
+      });
+      return { ok: true, account };
+    } catch (error) {
+      return { error: 'SetCapeFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('skin:reset-microsoft', async (_, profileKey = 'default') => {
+    try {
+      const account = await resetMicrosoftSkin({
+        profileKey,
+        storageDir: app.getPath('userData'),
+      });
+      return { ok: true, account };
+    } catch (error) {
+      return { error: 'ResetSkinFailed', message: error?.message || String(error) };
+    }
+  });
+
   // ── Instances ──
   ipcMain.handle('instances:get-all', async () => readAllInstances());
   ipcMain.handle('instances:create', async (_, payload) => createInstance(payload));
   ipcMain.handle('instances:update', async (_, { id, updates }) => updateInstance(id, updates));
+  ipcMain.handle('instances:duplicate', async (_, { id, newName }) => duplicateInstance(id, newName));
   ipcMain.handle('instances:delete', async (_, id) => deleteInstance(id));
   ipcMain.handle('instances:scan-base', async () => scanBaseDirectory());
   ipcMain.handle('instances:migrate-base', async (_, payload) => migrateBaseToInstance(payload));
@@ -269,7 +442,7 @@ export function registerAllIpc() {
     const result = await dialog.showOpenDialog(win || undefined, {
       title: 'Select mod files',
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Minecraft Mods', extensions: ['jar', 'olpkg'] }, { name: 'All Files', extensions: ['*'] }],
+      filters: [{ name: 'Minecraft Mods', extensions: ['jar', 'disabled', 'slpkg', 'olpkg'] }, { name: 'All Files', extensions: ['*'] }],
     });
     if (result.canceled) return { canceled: true, filePaths: [] };
     return { canceled: false, filePaths: result.filePaths || [] };
@@ -283,6 +456,31 @@ export function registerAllIpc() {
   ipcMain.handle('minecraft:modrinth-get-versions', async (_, params) => getModrinthProjectVersions(params));
   ipcMain.handle('minecraft:modrinth-install', async (_, payload) => installModrinthProject(payload, { onLog: sendLog }));
   ipcMain.handle('minecraft:check-mod-updates', async (_, params) => checkInstalledModsUpdates(params));
+
+  ipcMain.handle('minecraft:pick-modpack-file', async () => pickModpackFile());
+  ipcMain.handle('minecraft:install-local-modpack', async (_, { filePath, mrpackPath, instanceName } = {}) => {
+    try {
+      return await installMrpackArchive(
+        { mrpackPath: mrpackPath || filePath, instanceName },
+        {
+          onLog: sendLog,
+          onProgress: (p) => sendToRenderer('minecraft:install-progress', p),
+        }
+      );
+    } catch (error) {
+      return { ok: false, error: 'ModpackInstallFailed', message: error?.message || String(error) };
+    }
+  });
+  ipcMain.handle('minecraft:install-modrinth-modpack', async (_, payload = {}) => {
+    try {
+      return await installModrinthModpack(payload, {
+        onLog: sendLog,
+        onProgress: (p) => sendToRenderer('minecraft:install-progress', p),
+      });
+    } catch (error) {
+      return { ok: false, error: 'ModpackInstallFailed', message: error?.message || String(error) };
+    }
+  });
 
   // ── Updates ──
   ipcMain.handle('minecraft:check-update', async () => {
@@ -327,4 +525,18 @@ export function registerAllIpc() {
   });
 
   ipcMain.handle('minecraft:stop', async (_, { pid }) => stopMinecraft(pid));
+
+  // ── System Theme Integration ──
+  ipcMain.handle('app:get-system-theme', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'));
+  ipcMain.handle('app:set-window-theme', (_, resolvedTheme) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.setBackgroundColor(resolvedTheme === 'light' ? '#f8f9fb' : '#09090b');
+    }
+    return { ok: true };
+  });
+  nativeTheme.removeAllListeners('updated');
+  nativeTheme.on('updated', () => {
+    sendToRenderer('app:system-theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+  });
 }

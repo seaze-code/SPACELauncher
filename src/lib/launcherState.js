@@ -20,6 +20,9 @@ export const DEFAULT_LAUNCHER_STATE = {
     autoUpdate: true,
     showSnapshots: false,
     language: 'en',
+    theme: 'obsidian',
+    compactMode: false,
+    reduceMotion: false,
   },
   installTargets: {
     minecraft: { title: 'Install Minecraft', versions: [] },
@@ -70,6 +73,8 @@ export function normalizeProfile(profile, index = 0) {
   };
 }
 
+const VALID_THEMES = new Set(['obsidian', 'nebula', 'emerald', 'amber']);
+
 function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.settings) {
   const rawBehavior = settings?.launchBehavior;
   let launchBehavior = 'hide';
@@ -81,6 +86,11 @@ function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.s
     launchBehavior = fallbackSettings.launchBehavior;
   }
 
+  const rawTheme = typeof settings?.theme === 'string' ? settings.theme.trim() : '';
+  const theme = VALID_THEMES.has(rawTheme)
+    ? rawTheme
+    : (VALID_THEMES.has(fallbackSettings?.theme) ? fallbackSettings.theme : 'obsidian');
+
   return {
     javaPath: typeof settings?.javaPath === 'string' ? settings.javaPath : fallbackSettings.javaPath,
     keepOpen: launchBehavior === 'keepOpen',
@@ -91,6 +101,9 @@ function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.s
     language: typeof settings?.language === 'string' && settings.language.trim()
       ? settings.language.trim()
       : fallbackSettings.language,
+    theme,
+    compactMode: typeof settings?.compactMode === 'boolean' ? settings.compactMode : Boolean(fallbackSettings?.compactMode),
+    reduceMotion: typeof settings?.reduceMotion === 'boolean' ? settings.reduceMotion : Boolean(fallbackSettings?.reduceMotion),
   };
 }
 
@@ -128,6 +141,36 @@ export async function loadLauncherState(storageDir) {
   };
 }
 
+const pendingSaveQueues = new Map();
+
+async function writeStateFileAtomic(targetPath, payload) {
+  const dir = path.dirname(targetPath);
+  await fs.mkdir(dir, { recursive: true });
+  const uniqueSuffix = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+  const tmpPath = `${targetPath}.${uniqueSuffix}.tmp`;
+  await fs.writeFile(tmpPath, payload, 'utf8');
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await fs.rename(tmpPath, targetPath);
+      return;
+    } catch (error) {
+      const code = error?.code;
+      if ((code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') && attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 40 * (attempt + 1)));
+        continue;
+      }
+      if (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') {
+        await fs.copyFile(tmpPath, targetPath);
+        await fs.unlink(tmpPath).catch(() => {});
+        return;
+      }
+      await fs.unlink(tmpPath).catch(() => {});
+      throw error;
+    }
+  }
+}
+
 export async function saveLauncherState(storageDir, state) {
   const profiles = Array.isArray(state?.profiles) ? state.profiles.map((p, i) => normalizeProfile(p, i)) : [];
   const normalizedState = {
@@ -149,7 +192,19 @@ export async function saveLauncherState(storageDir, state) {
       : DEFAULT_LAUNCHER_STATE.latest,
   };
 
-  await fs.mkdir(storageDir, { recursive: true });
-  await fs.writeFile(stateFilePath(storageDir), JSON.stringify(normalizedState, null, 2), 'utf8');
+  const targetPath = stateFilePath(storageDir);
+  const payload = JSON.stringify(normalizedState, null, 2);
+  const prev = pendingSaveQueues.get(targetPath) || Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => writeStateFileAtomic(targetPath, payload));
+  pendingSaveQueues.set(targetPath, next);
+  try {
+    await next;
+  } finally {
+    if (pendingSaveQueues.get(targetPath) === next) {
+      pendingSaveQueues.delete(targetPath);
+    }
+  }
   return normalizedState;
 }

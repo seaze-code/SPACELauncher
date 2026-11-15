@@ -2,10 +2,11 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import en from '../locales/en.json';
 import es from '../locales/es.json';
 import fr from '../locales/fr.json';
+import th from '../locales/th.json';
 
 const I18nContext = createContext(null);
 
-const translations = { en, es, fr };
+const translations = { en, es, fr, th };
 
 // IPC helper (safe for browser dev mode)
 const launcher = window?.launcher ?? {};
@@ -16,12 +17,19 @@ const setAppLanguage = typeof launcher.setAppLanguage === 'function'
   ? launcher.setAppLanguage.bind(launcher)
   : () => Promise.resolve();
 
-const LANGUAGE_STORAGE_KEY = 'openlauncher.language';
+const LANGUAGE_STORAGE_KEY = 'spacelauncher.language';
+const LEGACY_LANGUAGE_STORAGE_KEY = 'openlauncher.language';
 
 function readStoredLanguage() {
   try {
     const storedLanguage = window?.localStorage?.getItem(LANGUAGE_STORAGE_KEY);
-    return storedLanguage && translations[storedLanguage] ? storedLanguage : null;
+    if (storedLanguage && translations[storedLanguage]) return storedLanguage;
+    const legacy = window?.localStorage?.getItem(LEGACY_LANGUAGE_STORAGE_KEY);
+    if (legacy && translations[legacy]) {
+      window?.localStorage?.setItem(LANGUAGE_STORAGE_KEY, legacy);
+      return legacy;
+    }
+    return null;
   } catch {
     return null;
   }

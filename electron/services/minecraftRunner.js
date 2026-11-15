@@ -23,6 +23,17 @@ import {
 } from './minecraftInstaller.js';
 import { loadLauncherState } from '../../src/lib/launcherState.js';
 import { getMainWindow } from './windowManager.js';
+import { touchInstanceLastPlayed } from './instanceManager.js';
+
+const MAX_LOG_TAIL_CHARS = 250000;
+
+function appendBoundedTail(buffer, chunkText) {
+  const combined = buffer + chunkText;
+  if (combined.length > MAX_LOG_TAIL_CHARS) {
+    return combined.slice(-MAX_LOG_TAIL_CHARS);
+  }
+  return combined;
+}
 
 export const runningChildren = new Map();
 
@@ -634,8 +645,8 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
   const jvmSubstitutions = {
     ...substitutions,
     '${natives_directory}': path.join(baseDir, 'native-extract', mcVer),
-    '${launcher_name}': 'OpenLauncher',
-    '${launcher_version}': '1.1.2',
+    '${launcher_name}': 'SpaceLauncher',
+    '${launcher_version}': app?.getVersion?.() || '1.0.0',
     '${classpath}': classpath,
     '${classpath_separator}': path.delimiter,
     '${library_directory}': path.join(baseDir, 'libraries'),
@@ -856,15 +867,21 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
 
   const args = [...cleanedJvmArgs, '-cp', classpath, mainClass, ...gameArgs];
 
+  const workingDir = gameDir || baseDir;
+  await fs.promises.mkdir(workingDir, { recursive: true });
+
   let child;
   try {
-    child = spawn(finalJavaCmd, args, { cwd: baseDir });
+    child = spawn(finalJavaCmd, args, { cwd: workingDir });
   } catch (e) {
     onLog?.('error', `Failed to launch Java: ${finalJavaCmd}. Error: ${e?.message || e}. Make sure Java is installed.`);
     return { ok: false, error: 'JavaNotFound', message: `Java not found at ${finalJavaCmd}` };
   }
 
   runningChildren.set(child.pid, child);
+  if (instanceId) {
+    touchInstanceLastPlayed(instanceId).catch(() => {});
+  }
 
   const mainWindow = getMainWindow();
   const settings = await loadLauncherState(app.getPath('userData'));
@@ -934,12 +951,12 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
 
   child.stdout.on('data', chunk => {
     const text = String(chunk);
-    processOutput += text;
+    processOutput = appendBoundedTail(processOutput, text);
     onLog?.('stdout', text);
   });
   child.stderr.on('data', chunk => {
     const text = String(chunk);
-    processOutput += text;
+    processOutput = appendBoundedTail(processOutput, text);
     onLog?.('stderr', text);
   });
   child.on('close', async code => {
@@ -976,6 +993,19 @@ export function stopMinecraft(pid) {
   try {
     child.kill('SIGTERM');
     runningChildren.delete(pid);
+    // Fallback force kill if Java hangs on exit
+    const killTimer = setTimeout(() => {
+      try {
+        if (!child.killed && child.exitCode === null) {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+          } else {
+            child.kill('SIGKILL');
+          }
+        }
+      } catch {}
+    }, 2500);
+    killTimer.unref?.();
     return { ok: true };
   } catch (e) {
     return { error: 'KillFailed', message: e?.message || String(e) };

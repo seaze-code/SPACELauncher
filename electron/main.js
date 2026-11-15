@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './services/windowManager.js';
@@ -9,14 +9,15 @@ import { loadLauncherState } from '../src/lib/launcherState.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isDev = Boolean(process.defaultApp || process.argv.includes('--dev') || process.env.OPENLAUNCHER_DEV === '1');
+const isDev = Boolean(process.argv.includes('--dev') || process.env.SPACELAUNCHER_DEV === '1' || process.env.OPENLAUNCHER_DEV === '1');
 
 // Only load dotenv during development to save production cold startup time
 if (isDev) {
   import('dotenv').then(dotenv => dotenv.default.config()).catch(() => {});
 }
 
-app.setName('OpenLauncher');
+app.setName('SpaceLauncher');
+nativeTheme.themeSource = 'system';
 
 // Electron & Chromium engine optimizations (Ultra low RAM, disk cache, background processes)
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=128 --expose-gc');
@@ -43,6 +44,7 @@ if (!gotTheLock) {
     const mainWin = BrowserWindow.getAllWindows()[0];
     if (mainWin) {
       if (mainWin.isMinimized()) mainWin.restore();
+      if (!mainWin.isVisible()) mainWin.show();
       mainWin.focus();
     }
   });
@@ -75,7 +77,11 @@ async function init() {
   }, 3000);
 }
 
-app.whenReady().then(init);
+if (gotTheLock) {
+  app.whenReady().then(() => init().catch((err) => {
+    console.error('[SpaceLauncher] init failed:', err);
+  }));
+}
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {

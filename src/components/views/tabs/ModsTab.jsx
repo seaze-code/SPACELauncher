@@ -1,8 +1,12 @@
-import React from 'react';
+import { useMemo, useState } from 'react';
 import { ICONS } from '../../../constants/icons';
 import { Icon, EmptyState } from '../../common/CommonComponents';
 import { ModCard } from '../../cards/Cards';
 import { useI18n } from '../../../context/I18nContext';
+
+function stripModExt(fileName) {
+  return String(fileName || '').replace(/\.(jar(\.disabled)?|slpkg|olpkg)$/i, '').toLowerCase();
+}
 
 export function ModsTab({
   active,
@@ -12,15 +16,15 @@ export function ModsTab({
   handleDrop,
   modSearch,
   setModSearch,
-  mods,
+  mods = [],
   handleSetAllModsEnabled,
   handleCheckModUpdates,
   checkingModUpdates,
+  handleUpdateAllMods,
+  modUpdatesCount = 0,
   handleOpenContentFolder,
   handleAddContentClick,
-  setExploreType,
-  setActiveTab,
-  modUpdates,
+  modUpdates = {},
   updatingMods,
   handleModToggle,
   handleModDelete,
@@ -28,6 +32,44 @@ export function ModsTab({
   handleOpenLocalModDetails,
 }) {
   const { t } = useI18n();
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const counts = useMemo(() => {
+    let enabled = 0;
+    let disabled = 0;
+    let updates = 0;
+    for (const mod of mods) {
+      if (mod.enabled) enabled++;
+      else disabled++;
+      const fileKey = stripModExt(mod.fileName);
+      if (modUpdates[mod.fileName] || modUpdates[fileKey] || modUpdates[mod.name] || modUpdates[mod.id]) {
+        updates++;
+      }
+    }
+    return { all: mods.length, enabled, disabled, updates };
+  }, [mods, modUpdates]);
+
+  const filteredMods = useMemo(() => {
+    const q = modSearch.trim().toLowerCase();
+    return mods.filter(m => {
+      if (statusFilter === 'enabled' && !m.enabled) return false;
+      if (statusFilter === 'disabled' && m.enabled) return false;
+      if (statusFilter === 'updates') {
+        const fk = stripModExt(m.fileName);
+        if (!modUpdates[m.fileName] && !modUpdates[fk] && !modUpdates[m.name] && !modUpdates[m.id]) {
+          return false;
+        }
+      }
+      if (q) {
+        const matchesName = String(m.name || '').toLowerCase().includes(q);
+        const matchesFile = String(m.fileName || '').toLowerCase().includes(q);
+        if (!matchesName && !matchesFile) return false;
+      }
+      return true;
+    });
+  }, [mods, modSearch, statusFilter, modUpdates]);
+
+  const anyEnabled = mods.some(m => m.enabled);
 
   return (
     <div
@@ -40,7 +82,7 @@ export function ModsTab({
       {isDragging && (
         <div className="dropzone-overlay">
           <div className="dropzone-content">
-            <Icon d={ICONS.download} size={36} />
+            <Icon d={ICONS.download} size={32} />
             <span className="dropzone-title">{t('mods.dropzone')}</span>
             <span className="dropzone-sub">{t('mods.dropzoneSub')}</span>
           </div>
@@ -65,25 +107,41 @@ export function ModsTab({
         </div>
 
         {mods.length > 0 && (
-          <span className="mods-count-badge">
-            {mods.filter(m => m.enabled).length}/{mods.length} {t('mods.active')}
-          </span>
+          <div className="segmented-pills">
+            {['all', 'enabled', 'disabled', ...(counts.updates > 0 ? ['updates'] : [])].map(key => (
+              <button
+                key={key}
+                className={`segmented-pill ${statusFilter === key ? 'active' : ''}`}
+                onClick={() => setStatusFilter(key)}
+              >
+                <span>{t(`mods.filter${key.charAt(0).toUpperCase() + key.slice(1)}`)}</span>
+                <span className="segmented-count">{counts[key]}</span>
+              </button>
+            ))}
+          </div>
         )}
 
         <div className="mods-toolbar-actions">
-          {mods.length > 0 && (() => {
-            const anyEnabled = mods.some(m => m.enabled);
-            return (
-              <button
-                className="btn-secondary"
-                onClick={() => handleSetAllModsEnabled(!anyEnabled)}
-                title={anyEnabled ? t('mods.disableAll') : t('mods.enableAll')}
-              >
-                <Icon d={anyEnabled ? ICONS.stop : ICONS.check} size={12} />
-                <span>{anyEnabled ? t('mods.disableAll') : t('mods.enableAll')}</span>
-              </button>
-            );
-          })()}
+          {modUpdatesCount > 0 && handleUpdateAllMods && (
+            <button
+              className="btn-accent"
+              onClick={handleUpdateAllMods}
+              disabled={updatingMods?.size > 0}
+            >
+              <Icon d={ICONS.download} size={12} className={updatingMods?.size > 0 ? 'spin-infinite' : ''} />
+              <span>{t('mods.updateAllCount', { count: modUpdatesCount })}</span>
+            </button>
+          )}
+          {mods.length > 0 && (
+            <button
+              className="btn-secondary"
+              onClick={() => handleSetAllModsEnabled(!anyEnabled)}
+              title={anyEnabled ? t('mods.disableAll') : t('mods.enableAll')}
+            >
+              <Icon d={anyEnabled ? ICONS.stop : ICONS.check} size={12} />
+              <span>{anyEnabled ? t('mods.disableAll') : t('mods.enableAll')}</span>
+            </button>
+          )}
           <button
             className="btn-secondary"
             onClick={() => handleCheckModUpdates({ silent: false })}
@@ -97,9 +155,9 @@ export function ModsTab({
             <Icon d={ICONS.folder} size={12} />
             <span>{t('mods.openFolder')}</span>
           </button>
-          <button className="btn-primary" onClick={() => handleAddContentClick('mods')} style={{ fontSize: 12, padding: '6px 14px' }}>
+          <button className="btn-primary" onClick={() => handleAddContentClick('mods')}>
             <Icon d={ICONS.plus} size={12} />
-            {t('mods.addMod')}
+            <span>{t('mods.addMod')}</span>
           </button>
         </div>
       </div>
@@ -109,53 +167,44 @@ export function ModsTab({
           icon={ICONS.cube}
           title={t('mods.emptyTitle')}
           description={t('mods.emptyText')}
-          actionText={t('explore.browseMods')}
-          actionIcon={ICONS.compass}
-          onAction={() => {
-            setExploreType('mods');
-            setActiveTab('explore');
-          }}
+          actionText={t('mods.addMod')}
+          actionIcon={ICONS.plus}
+          onAction={() => handleAddContentClick('mods')}
           secondaryText={t('mods.openModsFolder')}
           onSecondary={() => handleOpenContentFolder('mods')}
         />
-      ) : (() => {
-        const filtered = mods.filter(m =>
-          String(m.name || '').toLowerCase().includes(modSearch.toLowerCase()) ||
-          String(m.fileName || '').toLowerCase().includes(modSearch.toLowerCase())
-        );
-        if (filtered.length === 0) {
-          return (
-            <EmptyState
-              icon={ICONS.search}
-              title={t('mods.noMatchTitle')}
-              description={t('mods.noMatchText')}
-              actionText={t('common.clearSearch')}
-              onAction={() => setModSearch('')}
-            />
-          );
-        }
-        return (
-          <div className="mods-grid">
-            {filtered.map(mod => {
-              const fileKey = mod.fileName ? mod.fileName.replace(/\.jar(\.disabled)?$/i, '').toLowerCase() : '';
-              const updateInfo = modUpdates[mod.fileName] || modUpdates[fileKey] || modUpdates[mod.name] || modUpdates[mod.id] || null;
-              const isUpdating = updatingMods.has(mod.fileName) || updatingMods.has(fileKey);
-              return (
-                <ModCard
-                  key={mod.id}
-                  mod={mod}
-                  updateInfo={updateInfo}
-                  updating={isUpdating}
-                  onToggle={handleModToggle}
-                  onDelete={handleModDelete}
-                  onUpdate={handleUpdateMod}
-                  onOpenDetails={handleOpenLocalModDetails}
-                />
-              );
-            })}
-          </div>
-        );
-      })()}
+      ) : filteredMods.length === 0 ? (
+        <EmptyState
+          icon={ICONS.search}
+          title={t('mods.noMatchTitle')}
+          description={t('mods.noMatchText')}
+          actionText={t('common.clearSearch')}
+          onAction={() => {
+            setModSearch('');
+            setStatusFilter('all');
+          }}
+        />
+      ) : (
+        <div className="mods-grid">
+          {filteredMods.map(mod => {
+            const fileKey = stripModExt(mod.fileName);
+            const updateInfo = modUpdates[mod.fileName] || modUpdates[fileKey] || modUpdates[mod.name] || modUpdates[mod.id] || null;
+            const isUpdating = updatingMods.has(mod.fileName) || updatingMods.has(fileKey);
+            return (
+              <ModCard
+                key={mod.id}
+                mod={mod}
+                updateInfo={updateInfo}
+                updating={isUpdating}
+                onToggle={handleModToggle}
+                onDelete={handleModDelete}
+                onUpdate={handleUpdateMod}
+                onOpenDetails={handleOpenLocalModDetails}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

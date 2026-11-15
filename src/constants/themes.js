@@ -1,0 +1,60 @@
+export const SPACE_THEMES = [
+  {
+    id: 'system',
+    nameKey: 'settings.themeSystem',
+    fallbackName: 'System (Auto)',
+    accent: 'linear-gradient(135deg, #ffffff 50%, #09090b 50%)',
+    surface: '#18181b',
+    glow: 'none',
+  },
+  {
+    id: 'light',
+    nameKey: 'settings.themeLight',
+    fallbackName: 'Pure White (Light)',
+    accent: '#ffffff',
+    surface: '#f8f9fb',
+    glow: 'none',
+  },
+  {
+    id: 'dark',
+    nameKey: 'settings.themeDark',
+    fallbackName: 'Pure Black (Dark)',
+    accent: '#18181b',
+    surface: '#050507',
+    glow: 'none',
+  },
+  {
+    id: 'obsidian',
+    nameKey: 'settings.themeObsidian',
+    fallbackName: 'Orbital Obsidian',
+    accent: '#38bdf8',
+    surface: '#090b10',
+    glow: '#7dd3fc',
+  },
+  {
+    id: 'nebula',
+    nameKey: 'settings.themeNebula',
+    fallbackName: 'Cosmic Nebula',
+    accent: '#a855f7',
+    surface: '#090712',
+    glow: '#c084fc',
+  },
+  {
+    id: 'emerald',
+    nameKey: 'settings.themeEmerald',
+    fallbackName: 'Aurora Station',
+    accent: '#10b981',
+    surface: '#060c0a',
+    glow: '#34d399',
+  },
+  {
+    id: 'amber',
+    nameKey: 'settings.themeAmber',
+    fallbackName: 'Solar Flare',
+    accent: '#f59e0b',
+    surface: '#0d0906',
+    glow: '#fbbf24',
+  },
+];
+
+export const VALID_THEME_IDS = new Set(SPACE_THEMES.map(t => t.id));

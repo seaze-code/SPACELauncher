@@ -3,212 +3,197 @@ import { useI18n } from '../../../context/I18nContext';
 import { ICONS } from '../../../constants/icons';
 import { Icon } from '../../common/CommonComponents';
 import { getInstanceIconSrc } from '../../../constants/instanceIcons';
+import { formatPlaytime } from '../../../utils/formatters';
+
+function formatRelativeTime(timestamp, neverLabel) {
+  if (!timestamp) return neverLabel;
+  const diffSec = Math.max(0, Math.floor((Date.now() - Number(timestamp)) / 1000));
+  if (diffSec < 60) return 'Just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  const days = Math.floor(diffSec / 86400);
+  if (days < 30) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
 
 export function InstancesTab({
   active = false,
   instances = [],
   activeInstanceId = null,
   onSelectInstance,
+  onOpenInstance,
   onPlayInstance,
   onCreateInstanceClick,
+  onImportModpackClick,
   onMigrateClick,
   onEditInstanceClick,
+  onDuplicateInstanceClick,
   onDeleteInstanceClick,
   onOpenFolderClick,
   runningInstanceId = null,
 }) {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
+  const [viewMode, setViewMode] = useState('grid');
 
   const filteredInstances = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return instances;
-    return instances.filter(inst =>
-      inst.name.toLowerCase().includes(q) ||
-      inst.version.toLowerCase().includes(q) ||
-      (inst.loader && inst.loader.toLowerCase().includes(q))
-    );
-  }, [instances, search]);
+    const list = q
+      ? instances.filter(inst =>
+        inst.name.toLowerCase().includes(q) ||
+        inst.version.toLowerCase().includes(q) ||
+        (inst.loader && inst.loader.toLowerCase().includes(q))
+      )
+      : [...instances];
 
-  const getLoaderBadgeClass = (loader) => {
-    switch (loader) {
-      case 'fabric': return 'loader-badge-fabric';
-      case 'forge': return 'loader-badge-forge';
-      case 'neoforge': return 'loader-badge-neoforge';
-      case 'quilt': return 'loader-badge-quilt';
-      default: return 'loader-badge-vanilla';
+    if (sortBy === 'name') {
+      list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    } else if (sortBy === 'mods') {
+      list.sort((a, b) => (b.modsCount || 0) - (a.modsCount || 0));
+    } else {
+      list.sort((a, b) => (b.lastPlayed || b.created || 0) - (a.lastPlayed || a.created || 0));
     }
+    return list;
+  }, [instances, search, sortBy]);
+
+  const openDetail = (id) => {
+    if (onOpenInstance) onOpenInstance(id);
+    else onSelectInstance(id);
   };
 
   return (
-    <div className="tab-panel" style={{ display: active ? 'flex' : 'none', flexDirection: 'column', height: '100%', gap: 16 }}>
-      {/* Action Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            className="btn btn-primary"
-            onClick={onCreateInstanceClick}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontWeight: 600 }}
-          >
-            <Icon d={ICONS.plus} size={16} />
-            <span>{t('instances.create')}</span>
+    <div className="tab-panel" style={{ display: active ? 'flex' : 'none', flexDirection: 'column', height: '100%', gap: 14 }}>
+      {/* Command Action Toolbar */}
+      <div className="instances-toolbar">
+        <div className="instances-toolbar-left">
+          <button className="btn-primary" onClick={onCreateInstanceClick}>
+            <Icon d={ICONS.plus} size={13} />
+            <span>{t('instances.create') || t('instances.newInstance')}</span>
           </button>
           <button
-            className="btn btn-secondary"
+            className="btn-secondary"
+            onClick={onImportModpackClick}
+            title={t('instances.importModpackTooltip')}
+          >
+            <Icon d={ICONS.box} size={13} />
+            <span>{t('instances.importModpack')}</span>
+          </button>
+          <button
+            className="btn-secondary"
             onClick={onMigrateClick}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}
             title={t('migration.buttonTooltip')}
           >
-            <Icon d={ICONS.folder} size={15} />
+            <Icon d={ICONS.folder} size={13} />
             <span>{t('migration.buttonLabel')}</span>
           </button>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          <span className="instances-total-count">
             {instances.length === 1
               ? t('instances.instancesCount_one')
               : t('instances.instancesCount_other', { count: instances.length })}
           </span>
         </div>
 
-        <div style={{ position: 'relative', width: 260 }}>
-          <input
-            type="text"
-            className="modal-input"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder={t('instances.searchPlaceholder')}
-            style={{ paddingLeft: 32, height: 36 }}
-          />
-          <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>
-            <Icon d={ICONS.search} size={14} />
-          </div>
-          {search && (
+        <div className="instances-toolbar-right">
+          <div className="instances-view-switch" role="group" aria-label="View mode">
             <button
-              onClick={() => setSearch('')}
-              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              type="button"
+              className={`instances-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              title="Grid"
             >
-              <Icon d={ICONS.x} size={14} />
+              <Icon d={ICONS.grid} size={13} />
             </button>
-          )}
+            <button
+              type="button"
+              className={`instances-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => setViewMode('list')}
+              title="List"
+            >
+              <Icon d={ICONS.list} size={13} />
+            </button>
+          </div>
+
+          <div className="segmented-pills">
+            {[
+              { id: 'recent', label: t('instances.sortRecent') },
+              { id: 'name', label: t('instances.sortName') },
+              { id: 'mods', label: t('instances.sortMods') },
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`segmented-pill ${sortBy === opt.id ? 'active' : ''}`}
+                onClick={() => setSortBy(opt.id)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mods-search-box" style={{ minWidth: 200 }}>
+            <Icon d={ICONS.search} size={13} />
+            <input
+              type="text"
+              className="mods-search-input"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={t('instances.searchPlaceholder')}
+            />
+            {search && (
+              <button className="search-clear-btn" onClick={() => setSearch('')}>
+                <Icon d={ICONS.x} size={11} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Grid of Instances */}
+      {/* Instances Collection (User-created instances only) */}
       {filteredInstances.length === 0 ? (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-          padding: 40,
-          background: 'rgba(255,255,255,0.02)',
-          borderRadius: 12,
-          border: '1px dashed rgba(255,255,255,0.1)'
-        }}>
-          <div style={{
-            width: 54,
-            height: 54,
-            borderRadius: 14,
-            background: 'rgba(255,255,255,0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--text-muted)'
-          }}>
-            <Icon d={ICONS.layers} size={28} />
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <Icon d={ICONS.layers} size={24} />
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-main)', marginBottom: 4 }}>
-              {instances.length === 0
-                ? t('instances.noInstancesTitle')
-                : t('instances.noResultsTitle')}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 360 }}>
-              {instances.length === 0
-                ? t('instances.noInstancesDesc')
-                : t('instances.noResultsDesc')}
-            </div>
-          </div>
+          <h3 className="empty-state-title">
+            {instances.length === 0 ? t('instances.noInstancesTitle') : t('instances.noResultsTitle')}
+          </h3>
+          <p className="empty-state-desc">
+            {instances.length === 0 ? t('instances.noInstancesDesc') : t('instances.noResultsDesc')}
+          </p>
           {instances.length === 0 && (
-            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-              <button className="btn btn-primary" onClick={onCreateInstanceClick}>
-                <Icon d={ICONS.plus} size={16} />
+            <div className="empty-state-actions">
+              <button className="btn-primary" onClick={onCreateInstanceClick}>
+                <Icon d={ICONS.plus} size={14} />
                 <span>{t('instances.createFirst')}</span>
               </button>
-              <button className="btn btn-secondary" onClick={onMigrateClick}>
-                <Icon d={ICONS.folder} size={16} />
+              <button className="btn-secondary" onClick={onImportModpackClick}>
+                <Icon d={ICONS.box} size={14} />
+                <span>{t('instances.importModpack')}</span>
+              </button>
+              <button className="btn-secondary" onClick={onMigrateClick}>
+                <Icon d={ICONS.folder} size={14} />
                 <span>{t('migration.buttonLabel')}</span>
               </button>
             </div>
           )}
         </div>
       ) : (
-        <div className="instances-grid">
-          {/* Card: Global Installation (.minecraft) */}
-          {!search && (
-            <div
-              onClick={() => onSelectInstance(null)}
-              className={`instance-card ${!activeInstanceId ? 'is-active' : ''}`}
-            >
-              <div className="instance-card-header">
-                <div className="instance-card-icon-wrapper">
-                  <Icon d={ICONS.folder} size={22} />
-                </div>
-                <div className="instance-card-title-col">
-                  <div className="instance-card-name-row">
-                    <div className="instance-card-name" title={t('instances.globalInstallation')}>
-                      {t('instances.globalInstallation')}
-                    </div>
-                    {!activeInstanceId && (
-                      <span className="instance-active-badge">
-                        {t('instances.activeInstanceBadge')}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {t('instances.globalInstallationDesc')}
-                  </div>
-                </div>
-              </div>
-
-              <div className="instance-card-actions">
-                <button
-                  className="btn btn-secondary btn-icon-only"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenFolderClick(null);
-                  }}
-                  title={t('instances.openFolder')}
-                >
-                  <Icon d={ICONS.folder} size={13} />
-                </button>
-                <button
-                  className={`btn btn-select ${!activeInstanceId ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectInstance(null);
-                  }}
-                >
-                  <Icon d={!activeInstanceId ? ICONS.check : ICONS.folder} size={13} />
-                  <span>{!activeInstanceId ? t('instances.activeInstanceBadge') : t('instances.useGlobal')}</span>
-                </button>
-              </div>
-            </div>
-          )}
-
+        <div className={viewMode === 'list' ? 'instances-list' : 'instances-grid'}>
           {filteredInstances.map(inst => {
             const isActive = inst.id === activeInstanceId;
             const isRunning = runningInstanceId === inst.id;
+            const loaderKey = inst.loader ? String(inst.loader).toLowerCase() : 'vanilla';
+            const loaderLabel = inst.loader || 'Vanilla';
+            const playtimeText = formatPlaytime(inst.playTimeMs) || formatRelativeTime(inst.lastPlayed, t('instances.neverPlayed'));
 
             return (
               <div
                 key={inst.id}
-                onClick={() => onSelectInstance(inst.id)}
-                className={`instance-card ${isActive ? 'is-active' : ''}`}
+                onClick={() => openDetail(inst.id)}
+                className={`instance-card ${viewMode === 'list' ? 'instance-card-list' : ''} ${isActive ? 'is-active' : ''}`}
               >
-                {/* Header: Icon, Name & Status */}
-                <div className="instance-card-header">
+                <div className="instance-card-main">
                   <div className="instance-card-icon-wrapper">
                     <img
                       src={getInstanceIconSrc(inst.icon)}
@@ -219,96 +204,80 @@ export function InstancesTab({
 
                   <div className="instance-card-title-col">
                     <div className="instance-card-name-row">
-                      <div className="instance-card-name" title={inst.name}>
+                      <span className="instance-card-name" title={inst.name}>
                         {inst.name}
-                      </div>
-                      {isActive && (
-                        <span className="instance-active-badge">
-                          {t('instances.activeInstanceBadge')}
-                        </span>
+                      </span>
+                    </div>
+
+                    <div className="instance-card-spec-line">
+                      <span className="instance-spec-ver" title={inst.version}>{inst.version}</span>
+                      <span className="spec-sep">·</span>
+                      <span className={`instance-spec-loader loader-${loaderKey}`}>{loaderLabel}</span>
+                      <span className="spec-sep">·</span>
+                      <span className="instance-spec-meta">
+                        {inst.modsCount > 0 ? t('instances.modsCount', { count: inst.modsCount }) : t('instances.noMods')}
+                      </span>
+                      <span className="spec-sep">·</span>
+                      <span className="instance-spec-meta">{inst.ram || 4} {t('game.ram')}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="instance-card-footer">
+                  <span className="instance-card-lastplayed">{playtimeText}</span>
+
+                  <div className="instance-card-actions" onClick={e => e.stopPropagation()}>
+                    <div className="instance-secondary-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost-icon"
+                        title={t('instances.openFolder')}
+                        onClick={() => onOpenFolderClick(inst.id)}
+                      >
+                        <Icon d={ICONS.folder} size={13} />
+                      </button>
+
+                      {onDuplicateInstanceClick && (
+                        <button
+                          type="button"
+                          className="btn-ghost-icon"
+                          title={t('instances.duplicate')}
+                          onClick={() => onDuplicateInstanceClick(inst)}
+                        >
+                          <Icon d={ICONS.copy} size={13} />
+                        </button>
                       )}
+
+                      <button
+                        type="button"
+                        className="btn-ghost-icon"
+                        title={t('instances.settings')}
+                        onClick={() => onEditInstanceClick(inst)}
+                      >
+                        <Icon d={ICONS.settings} size={13} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-ghost-icon btn-danger-hover"
+                        title={t('instances.delete')}
+                        onClick={() => onDeleteInstanceClick(inst)}
+                      >
+                        <Icon d={ICONS.trash} size={13} />
+                      </button>
                     </div>
-                    <div className="instance-card-tags">
-                      <span className="instance-tag-version" title={inst.version}>
-                        {inst.version}
-                      </span>
-                      <span className={`instance-tag-loader ${inst.loader ? String(inst.loader).toLowerCase() : 'vanilla'}`}>
-                        {inst.loader || 'Vanilla'}
-                      </span>
-                    </div>
+
+                    <button
+                      type="button"
+                      className={`instance-play-btn ${isRunning ? 'is-running' : ''}`}
+                      onClick={() => onPlayInstance(inst)}
+                      disabled={isRunning}
+                      title={t('instances.play')}
+                    >
+                      <Icon d={isRunning ? ICONS.stop : ICONS.play} size={12} />
+                      <span>{isRunning ? t('instances.playing') : t('instances.play')}</span>
+                    </button>
                   </div>
-                </div>
-
-                {/* Info row */}
-                <div className="instance-card-meta">
-                  <div>
-                    {inst.modsCount > 0
-                      ? t('instances.modsCount', { count: inst.modsCount })
-                      : t('instances.noMods')}
-                  </div>
-                  <div>
-                    {t('instances.allocatedRam', { ram: inst.ram || 4 })}
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div className="instance-card-actions">
-                  <button
-                    className={`btn btn-select ${isActive ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectInstance(inst.id);
-                    }}
-                  >
-                    <Icon d={isActive ? ICONS.check : ICONS.layers} size={13} />
-                    <span>{isActive ? t('instances.selectedInstance') : t('instances.selectInstance')}</span>
-                  </button>
-
-                  <button
-                    className="btn btn-secondary btn-play"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPlayInstance(inst);
-                    }}
-                    disabled={isRunning}
-                    title={t('instances.play')}
-                  >
-                    <Icon d={isRunning ? ICONS.stop : ICONS.play} size={13} />
-                    <span>{isRunning ? t('instances.playing') : t('instances.play')}</span>
-                  </button>
-
-                  <button
-                    className="btn btn-secondary btn-icon-only"
-                    title={t('instances.openFolder')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenFolderClick(inst.id);
-                    }}
-                  >
-                    <Icon d={ICONS.folder} size={13} />
-                  </button>
-
-                  <button
-                    className="btn btn-secondary btn-icon-only"
-                    title={t('instances.settings')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEditInstanceClick(inst);
-                    }}
-                  >
-                    <Icon d={ICONS.settings} size={14} />
-                  </button>
-
-                  <button
-                    className="btn btn-secondary btn-icon-only btn-delete"
-                    title={t('instances.delete')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteInstanceClick(inst);
-                    }}
-                  >
-                    <Icon d={ICONS.trash} size={14} />
-                  </button>
                 </div>
               </div>
             );

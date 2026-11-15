@@ -1,18 +1,14 @@
-import React from 'react';
 import { ICONS } from '../../../constants/icons';
 import { Icon, EmptyState } from '../../common/CommonComponents';
 import { ModrinthCard, ModrinthCardSkeleton } from '../../cards/Cards';
 import { useI18n } from '../../../context/I18nContext';
-import { launcher } from '../../../services/launcherClient';
 
 export function ExploreTab({
   active,
   isOnline,
   exploreType,
   setExploreType,
-  showBetaInfo,
-  setShowBetaInfo,
-  betaInfoRef,
+  activeInstance = null,
   modrinthQuery,
   setModrinthQuery,
   modrinthSort,
@@ -23,10 +19,12 @@ export function ExploreTab({
   modrinthVersionFilter,
   setModrinthVersionFilter,
   currentMcVer,
+  versionCatalog = [],
   modrinthCategory,
   setModrinthCategory,
   modrinthLoading,
   modrinthResults,
+  modrinthTotalHits = 0,
   isModInstalled,
   modrinthInstalling,
   handleInstallModrinthMod,
@@ -35,6 +33,14 @@ export function ExploreTab({
   modrinthLoadingMore,
 }) {
   const { t } = useI18n();
+  const hasCustomFilter = Boolean(
+    modrinthQuery ||
+    modrinthCategory !== 'all' ||
+    modrinthLoaderFilter !== 'auto' ||
+    modrinthVersionFilter !== 'auto' ||
+    modrinthSort !== 'relevance'
+  );
+  const targetName = activeInstance ? activeInstance.name : t('home.noInstanceSelected');
 
   return (
     <div
@@ -43,53 +49,17 @@ export function ExploreTab({
     >
       <div className="explore-header">
         <div>
-          <h2 className="explore-title" style={{ display: 'flex', alignItems: 'center' }}>
-            {t('explore.title')}
-            <div className="explore-beta-wrapper" ref={betaInfoRef}>
-              <button
-                type="button"
-                className={`explore-beta-tag ${showBetaInfo ? 'active' : ''}`}
-                onClick={() => setShowBetaInfo(prev => !prev)}
-                title={t('mods.modrinthBetaTitle')}
-              >
-                <span>BETA</span>
-                <Icon d={ICONS.info} size={11} style={{ opacity: 0.85 }} />
-              </button>
-              {showBetaInfo && (
-                <div className="explore-beta-popover">
-                  <div className="explore-beta-popover-header">
-                    <div className="explore-beta-popover-title">
-                      <Icon d={ICONS.compass} size={14} style={{ color: 'var(--accent-light, #60a5fa)' }} />
-                      <span>{t('mods.modrinthBetaTitle')}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="explore-beta-popover-close"
-                      onClick={() => setShowBetaInfo(false)}
-                    >
-                      <Icon d={ICONS.x} size={10} />
-                    </button>
-                  </div>
-                  <div className="explore-beta-popover-body">
-                    {t('mods.modrinthBetaDescription')}
-                  </div>
-                  <div className="explore-beta-popover-footer">
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      style={{ fontSize: 11, padding: '4px 8px', height: 'auto', textDecoration: 'none' }}
-                      onClick={() => {
-                        launcher.openExternal?.('https://modrinth.com').catch(() => { });
-                      }}
-                    >
-                      <Icon d={ICONS.external} size={11} />
-                      <span>Modrinth.com</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </h2>
+          <div className="explore-title-row">
+            <h2 className="explore-title">{t('explore.title')}</h2>
+            <span className="explore-target-chip">
+              {t('explore.installingTo', { name: targetName })}
+            </span>
+            {modrinthTotalHits > 0 && !modrinthLoading && (
+              <span className="explore-count-chip">
+                {t('explore.resultsCount', { count: modrinthTotalHits.toLocaleString() })}
+              </span>
+            )}
+          </div>
           <div className="explore-subtitle">{t('explore.subtitle')}</div>
         </div>
         <div className="explore-type-selector">
@@ -100,6 +70,14 @@ export function ExploreTab({
           >
             <Icon d={ICONS.cube} size={15} />
             <span>{t('explore.tabMods')}</span>
+          </button>
+          <button
+            type="button"
+            className={`explore-type-pill ${exploreType === 'modpacks' ? 'active' : ''}`}
+            onClick={() => setExploreType('modpacks')}
+          >
+            <Icon d={ICONS.box} size={15} />
+            <span>{t('explore.tabModpacks')}</span>
           </button>
           <button
             type="button"
@@ -136,13 +114,15 @@ export function ExploreTab({
               type="text"
               className="mods-search-input"
               placeholder={
-                exploreType === 'shaders'
-                  ? t('mods.searchModrinthShadersPlaceholder')
-                  : exploreType === 'resourcepacks'
-                    ? t('mods.searchModrinthResourcePacksPlaceholder')
-                    : exploreType === 'datapacks'
-                      ? t('mods.searchModrinthDatapacksPlaceholder')
-                      : t('mods.searchModrinthPlaceholder')
+                exploreType === 'modpacks'
+                  ? t('mods.searchModrinthModpacksPlaceholder')
+                  : exploreType === 'shaders'
+                    ? t('mods.searchModrinthShadersPlaceholder')
+                    : exploreType === 'resourcepacks'
+                      ? t('mods.searchModrinthResourcePacksPlaceholder')
+                      : exploreType === 'datapacks'
+                        ? t('mods.searchModrinthDatapacksPlaceholder')
+                        : t('mods.searchModrinthPlaceholder')
               }
               value={modrinthQuery}
               onChange={e => setModrinthQuery(e.target.value)}
@@ -170,7 +150,7 @@ export function ExploreTab({
               </select>
             </div>
 
-            {exploreType === 'mods' && (
+            {(exploreType === 'mods' || exploreType === 'modpacks') && (
               <div className="modrinth-filter-select-wrapper">
                 <span className="modrinth-filter-label">{t('mods.filterLoader')}:</span>
                 <select
@@ -203,8 +183,40 @@ export function ExploreTab({
                   {currentMcVer ? `Auto (${currentMcVer})` : t('mods.allVersions')}
                 </option>
                 <option value="all">{t('mods.allVersions')}</option>
+                {versionCatalog.length > 0 && (
+                  <optgroup label={t('instances.mojangGroup')}>
+                    {versionCatalog
+                      .filter(v => v.type === 'vanilla')
+                      .slice(0, 45)
+                      .map(v => {
+                        const mcVer = v.mcVer || v.id;
+                        return (
+                          <option key={v.id} value={mcVer}>
+                            {mcVer}
+                          </option>
+                        );
+                      })}
+                  </optgroup>
+                )}
               </select>
             </div>
+
+            {hasCustomFilter && (
+              <button
+                type="button"
+                className="btn-ghost explore-reset-btn"
+                onClick={() => {
+                  setModrinthQuery('');
+                  setModrinthCategory('all');
+                  setModrinthLoaderFilter('auto');
+                  setModrinthVersionFilter('auto');
+                  setModrinthSort('relevance');
+                }}
+              >
+                <Icon d={ICONS.x} size={11} />
+                <span>{t('explore.resetFilters')}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -238,6 +250,16 @@ export function ExploreTab({
             { id: 'utility', label: 'Utility' },
             { id: 'minigames', label: 'Minigames' },
             { id: 'vanilla-like', label: 'Vanilla-like' },
+          ] : exploreType === 'modpacks' ? [
+            { id: 'all', label: t('mods.allCategories') },
+            { id: 'optimization', label: 'Optimization' },
+            { id: 'adventure', label: 'Adventure' },
+            { id: 'technology', label: 'Technology' },
+            { id: 'magic', label: 'Magic' },
+            { id: 'quests', label: 'Quests' },
+            { id: 'lightweight', label: 'Lightweight' },
+            { id: 'multiplayer', label: 'Multiplayer' },
+            { id: 'kitchen-sink', label: 'Kitchen Sink' },
           ] : [
             { id: 'all', label: t('mods.allCategories') },
             { id: 'optimization', label: 'Optimization' },
@@ -275,22 +297,26 @@ export function ExploreTab({
           <EmptyState
             icon={ICONS.search}
             title={
-              exploreType === 'shaders'
-                ? t('mods.noShadersMatchTitle')
-                : exploreType === 'resourcepacks'
-                  ? t('mods.noResourcePacksMatchTitle')
-                  : exploreType === 'datapacks'
-                    ? t('mods.noDatapacksMatchTitle')
-                    : t('mods.noMatchTitle')
+              exploreType === 'modpacks'
+                ? t('mods.noModpacksMatchTitle')
+                : exploreType === 'shaders'
+                  ? t('mods.noShadersMatchTitle')
+                  : exploreType === 'resourcepacks'
+                    ? t('mods.noResourcePacksMatchTitle')
+                    : exploreType === 'datapacks'
+                      ? t('mods.noDatapacksMatchTitle')
+                      : t('mods.noMatchTitle')
             }
             description={
-              exploreType === 'shaders'
-                ? t('mods.noModrinthShadersResults')
-                : exploreType === 'resourcepacks'
-                  ? t('mods.noModrinthResourcePacksResults')
-                  : exploreType === 'datapacks'
-                    ? t('mods.noModrinthDatapacksResults')
-                    : t('mods.noModrinthResults')
+              exploreType === 'modpacks'
+                ? t('mods.noModrinthModpacksResults')
+                : exploreType === 'shaders'
+                  ? t('mods.noModrinthShadersResults')
+                  : exploreType === 'resourcepacks'
+                    ? t('mods.noModrinthResourcePacksResults')
+                    : exploreType === 'datapacks'
+                      ? t('mods.noModrinthDatapacksResults')
+                      : t('mods.noModrinthResults')
             }
             actionText={t('common.clearSearch')}
             onAction={() => {

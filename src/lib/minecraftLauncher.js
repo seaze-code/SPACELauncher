@@ -29,6 +29,7 @@ export const INSTALL_TARGETS = {
 };
 
 const MOJANG_MANIFEST_URL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
+const MOJANG_MANIFEST_FALLBACK_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const FABRIC_GAME_URL = 'https://meta.fabricmc.net/v2/versions/game';
 const FABRIC_LOADER_URL = 'https://meta.fabricmc.net/v2/versions/loader';
 const FORGE_PROMOTIONS_URL = 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json';
@@ -384,7 +385,7 @@ export async function loadLauncherCatalog({ includeSnapshots = false } = {}) {
       quiltLoaderResult,
       neoForgeResult,
     ] = await Promise.allSettled([
-      fetchJson(MOJANG_MANIFEST_URL),
+      fetchJson(MOJANG_MANIFEST_URL).catch(() => fetchJson(MOJANG_MANIFEST_FALLBACK_URL)),
       fetchJson(FABRIC_GAME_URL),
       fetchJson(FABRIC_LOADER_URL),
       fetchJson(FORGE_PROMOTIONS_URL),
@@ -592,7 +593,12 @@ export function formatVersionLabel(v) {
 }
 
 export function getVersionById(versionId, catalog = VERSION_CATALOG) {
-  return catalog.find(version => version.id === versionId) || null;
+  if (!versionId) return null;
+  return (
+    catalog.find(version => version.id === versionId) ||
+    catalog.find(version => (version.type === 'vanilla' || version.type === 'snapshot') && version.mcVer === versionId) ||
+    null
+  );
 }
 
 export function getInstallInfo(type, installTargets = INSTALL_TARGETS) {

@@ -1,14 +1,22 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useI18n } from '../../context/I18nContext';
 import { ICONS } from '../../constants/icons';
 import { Icon } from '../common/CommonComponents';
-import { MINECRAFT_INSTANCE_ICONS, getInstanceIconSrc } from '../../constants/instanceIcons';
+import { JavaRuntimePicker } from '../common/JavaRuntimePicker';
+import { MINECRAFT_INSTANCE_ICONS } from '../../constants/instanceIcons';
+import { JVM_PRESETS } from '../../constants/jvmPresets';
+import { loadLauncherCatalog } from '../../lib/minecraftLauncher';
 import { launcher } from '../../services/launcherClient';
 
 export function InstanceModal({
   mode = 'create', // 'create' | 'edit'
   instance = null,
   availableVersions = [],
+  versionCatalog = [],
+  installTargets = null,
+  showSnapshots = false,
+  onToggleSnapshots,
+  onCatalogLoaded,
   systemTotalRam = 8,
   onClose,
   onSave,
@@ -26,10 +34,34 @@ export function InstanceModal({
     return 'vanilla';
   };
 
-  const initialVersion = instance?.version || (availableVersions[0]?.id || '1.21.1');
+  const [localCatalog, setLocalCatalog] = useState(versionCatalog);
+  const [localTargets, setLocalTargets] = useState(installTargets);
+  const [fetchingMojang, setFetchingMojang] = useState(versionCatalog.length === 0);
+  const [versionFilter, setVersionFilter] = useState('');
+
+  const hasSnapshotsInParent = versionCatalog.some(v => v.type === 'snapshot');
+  const hasSnapshotsInLocal = localCatalog.some(v => v.type === 'snapshot');
+  const effectiveCatalog = (versionCatalog.length > 0 && (!showSnapshots || hasSnapshotsInParent || !hasSnapshotsInLocal))
+    ? versionCatalog
+    : (localCatalog.length > 0 ? localCatalog : versionCatalog);
+  const effectiveTargets = installTargets || localTargets;
+  const hasSnapshotEntries = effectiveCatalog.some(v => v.type === 'snapshot');
+  const snapshotFetchAttemptRef = useRef(false);
+
+  const initialMojangRelease = effectiveCatalog.find(v => v.type === 'vanilla');
+  const initialVersion = instance?.version
+    || availableVersions[0]?.id
+    || initialMojangRelease?.mcVer
+    || initialMojangRelease?.id
+    || effectiveCatalog[0]?.mcVer
+    || effectiveCatalog[0]?.id
+    || '1.21.4';
   const [name, setName] = useState(instance?.name || '');
   const [version, setVersion] = useState(initialVersion);
+  const userPickedVersionRef = useRef(Boolean(instance?.version || availableVersions[0]?.id));
   const [loader, setLoader] = useState(instance?.loader || detectLoader(initialVersion));
+  const [loaderVersion, setLoaderVersion] = useState('');
+  const [autoInstallMissing, setAutoInstallMissing] = useState(true);
   const [icon, setIcon] = useState(instance?.icon || 'grass_block');
   const [customIconData, setCustomIconData] = useState(
     instance?.icon && (instance.icon === 'custom' || instance.icon.startsWith('data:image/'))
@@ -41,13 +73,131 @@ export function InstanceModal({
   const [javaPath, setJavaPath] = useState(instance?.javaPath || '');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  useEffect(() => {
+    if (!showSnapshots) {
+      snapshotFetchAttemptRef.current = false;
+    }
+    const needsInitial = effectiveCatalog.length === 0;
+    const needsSnapshots = Boolean(showSnapshots) && !hasSnapshotEntries && !snapshotFetchAttemptRef.current;
+    if (!needsInitial && !needsSnapshots) {
+      setFetchingMojang(false);
+      return;
+    }
+    if (needsSnapshots) {
+      snapshotFetchAttemptRef.current = true;
+    }
+    let cancelled = false;
+    setFetchingMojang(true);
+    const fetchFn = launcher.minecraftGetCatalog
+      ? () => launcher.minecraftGetCatalog({ includeSnapshots: showSnapshots, showSnapshots })
+      : () => loadLauncherCatalog({ includeSnapshots: showSnapshots });
+    fetchFn()
+      .then((catalog) => {
+        if (cancelled || !catalog) return;
+        if (Array.isArray(catalog.versions)) {
+          setLocalCatalog(catalog.versions);
+          if (!userPickedVersionRef.current) {
+            const firstRelease = catalog.versions.find(v => v.type === 'vanilla');
+            if (firstRelease) {
+              setVersion(firstRelease.mcVer || firstRelease.id);
+            }
+          }
+        }
+        if (catalog.installTargets) setLocalTargets(catalog.installTargets);
+        onCatalogLoaded?.(catalog);
+      })
+      .catch(() => { })
+      .finally(() => {
+        if (!cancelled) setFetchingMojang(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveCatalog.length, showSnapshots, hasSnapshotEntries, onCatalogLoaded]);
+
+  const handleRefreshMojang = async (snapshotsFlag = showSnapshots) => {
+    setFetchingMojang(true);
+    try {
+      const fetchFn = launcher.minecraftGetCatalog
+        ? () => launcher.minecraftGetCatalog({ includeSnapshots: snapshotsFlag, showSnapshots: snapshotsFlag })
+        : () => loadLauncherCatalog({ includeSnapshots: snapshotsFlag });
+      const catalog = await fetchFn();
+      if (catalog) {
+        if (Array.isArray(catalog.versions)) setLocalCatalog(catalog.versions);
+        if (catalog.installTargets) setLocalTargets(catalog.installTargets);
+        onCatalogLoaded?.(catalog);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh Mojang catalog:', err);
+    } finally {
+      setFetchingMojang(false);
+    }
+  };
+
   const detectedFromVersion = detectLoader(version);
-  const hasInstalledVersions = availableVersions.length > 0;
+  const effectiveLoader = detectedFromVersion !== 'vanilla' ? detectedFromVersion : loader;
+
+  const installedIdSet = useMemo(
+    () => new Set(availableVersions.map(v => v.id)),
+    [availableVersions]
+  );
+
+  const filteredInstalled = useMemo(() => {
+    const q = versionFilter.trim().toLowerCase();
+    if (!q) return availableVersions;
+    return availableVersions.filter(v =>
+      String(v.id || '').toLowerCase().includes(q) || String(v.label || '').toLowerCase().includes(q)
+    );
+  }, [availableVersions, versionFilter]);
+
+  const mojangReleases = useMemo(() => {
+    const q = versionFilter.trim().toLowerCase();
+    return effectiveCatalog.filter(v => {
+      if (v.type !== 'vanilla') return false;
+      const mcVer = v.mcVer || v.id;
+      if (installedIdSet.has(mcVer) || installedIdSet.has(v.id)) return false;
+      if (!q) return true;
+      return String(mcVer || '').toLowerCase().includes(q) || String(v.label || '').toLowerCase().includes(q);
+    });
+  }, [effectiveCatalog, installedIdSet, versionFilter]);
+
+  const mojangSnapshots = useMemo(() => {
+    if (!showSnapshots) return [];
+    const q = versionFilter.trim().toLowerCase();
+    return effectiveCatalog.filter(v => {
+      if (v.type !== 'snapshot') return false;
+      const mcVer = v.mcVer || v.id;
+      if (installedIdSet.has(mcVer) || installedIdSet.has(v.id)) return false;
+      if (!q) return true;
+      return String(mcVer || '').toLowerCase().includes(q) || String(v.label || '').toLowerCase().includes(q);
+    });
+  }, [effectiveCatalog, installedIdSet, showSnapshots, versionFilter]);
+
+  const loaderVersionOptions = useMemo(() => {
+    if (detectedFromVersion !== 'vanilla' || effectiveLoader === 'vanilla') return [];
+    const targetEntry = effectiveTargets?.[effectiveLoader];
+    return targetEntry?.loadersByGameVersion?.[version] || [];
+  }, [detectedFromVersion, effectiveLoader, effectiveTargets, version]);
+
+  const resolvedLoaderVersion = loaderVersionOptions.includes(loaderVersion)
+    ? loaderVersion
+    : (loaderVersionOptions[0] || '');
+
+  const needsInstall = useMemo(() => {
+    if (!version) return false;
+    if (detectedFromVersion !== 'vanilla') return false;
+    if (effectiveLoader === 'vanilla') return !installedIdSet.has(version);
+    const matchesInstalledLoader = availableVersions.some(v =>
+      String(v.type || '').toLowerCase() === effectiveLoader &&
+      (String(v.mcVer || '') === version || String(v.inheritsFrom || '') === version || String(v.id || '').includes(version))
+    );
+    return !matchesInstalledLoader;
+  }, [version, detectedFromVersion, effectiveLoader, installedIdSet, availableVersions]);
 
   const handleVersionChange = (newVer) => {
+    userPickedVersionRef.current = true;
     setVersion(newVer);
     const detected = detectLoader(newVer);
     setLoader(detected);
+    setLoaderVersion('');
   };
 
   const handlePickCustomImage = async () => {
@@ -94,16 +244,30 @@ export function InstanceModal({
     e.preventDefault();
     if (!canSubmit) return;
 
+    let autoInstallTarget = null;
+    if (needsInstall && autoInstallMissing) {
+      if (effectiveLoader === 'vanilla') {
+        autoInstallTarget = { type: 'minecraft', version: version.trim() };
+      } else if (resolvedLoaderVersion) {
+        autoInstallTarget = {
+          type: effectiveLoader,
+          gameVersion: version.trim(),
+          loaderVersion: resolvedLoaderVersion,
+        };
+      }
+    }
+
     onSave({
       id: instance?.id,
       name: name.trim(),
       version: version.trim(),
-      loader: detectedFromVersion !== 'vanilla' ? detectedFromVersion : loader,
+      loader: effectiveLoader,
       icon,
       customIconData: icon === 'custom' ? customIconData : null,
       ram: Number(ram) || 4,
       jvmArguments: jvmArguments.trim(),
       javaPath: javaPath.trim(),
+      autoInstallTarget,
     });
     onClose();
   };
@@ -283,52 +447,163 @@ export function InstanceModal({
             </div>
           </div>
 
-          {/* Versión y Modloader */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="modal-field" style={{ margin: 0 }}>
-              <label className="modal-label">
-                <span>{t('instances.versionLabel')}</span>
-              </label>
-              {availableVersions.length > 0 ? (
-                <select className="modal-select" value={version} onChange={e => handleVersionChange(e.target.value)}>
-                  {availableVersions.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.label || v.id}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="modal-input"
-                  value={version}
-                  onChange={e => handleVersionChange(e.target.value)}
-                  placeholder="ej. 1.21.1"
-                />
-              )}
+          {/* Version (from Mojang & Local) and Modloader */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                className="modal-input"
+                style={{ flex: 1, fontSize: 12, padding: '6px 10px' }}
+                value={versionFilter}
+                onChange={e => setVersionFilter(e.target.value)}
+                placeholder={t('instances.versionSearchPlaceholder')}
+              />
+              <button
+                type="button"
+                className="btn-secondary btn-icon-square"
+                onClick={() => handleRefreshMojang(showSnapshots)}
+                disabled={fetchingMojang}
+                title={t('instances.refreshMojang')}
+              >
+                <Icon d={ICONS.refresh} size={13} className={fetchingMojang ? 'spin-infinite' : ''} />
+              </button>
             </div>
 
-            <div className="modal-field" style={{ margin: 0 }}>
-              <label className="modal-label">
-                <span>{t('instances.loaderLabel')}</span>
-                {detectedFromVersion !== 'vanilla' && (
-                  <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>
-                    {t('instances.autoDetected')}
-                  </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="modal-field" style={{ margin: 0 }}>
+                <label className="modal-label">
+                  <span>{t('instances.versionLabel')}</span>
+                </label>
+                {filteredInstalled.length > 0 || mojangReleases.length > 0 || mojangSnapshots.length > 0 ? (
+                  <select className="modal-select" value={version} onChange={e => handleVersionChange(e.target.value)}>
+                    {version &&
+                      !installedIdSet.has(version) &&
+                      !effectiveCatalog.some(v => (v.type === 'vanilla' || v.type === 'snapshot') && (v.mcVer || v.id) === version) && (
+                        <option value={version}>{version}</option>
+                    )}
+                    {filteredInstalled.length > 0 && (
+                      <optgroup label={t('instances.installedGroup')}>
+                        {filteredInstalled.map(v => (
+                          <option key={`inst-${v.id}`} value={v.id}>
+                            {v.label || v.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {mojangSnapshots.length > 0 && (
+                      <optgroup label={t('instances.snapshotsGroup')}>
+                        {mojangSnapshots.map(v => {
+                          const mcVer = v.mcVer || v.id;
+                          return (
+                            <option key={`snap-${v.id}`} value={mcVer}>
+                              {mcVer} ({v.type})
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
+                    {mojangReleases.length > 0 && (
+                      <optgroup label={t('instances.mojangGroup')}>
+                        {mojangReleases.map(v => {
+                          const mcVer = v.mcVer || v.id;
+                          return (
+                            <option key={`moj-${v.id}`} value={mcVer}>
+                              {mcVer}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
+                  </select>
+                ) : fetchingMojang ? (
+                  <div className="modal-input" style={{ display: 'flex', alignItems: 'center', minHeight: 34, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {t('instances.loadingMojang')}
+                  </div>
+                ) : (
+                  <input
+                    className="modal-input"
+                    value={version}
+                    onChange={e => handleVersionChange(e.target.value)}
+                    placeholder="1.21.4"
+                  />
                 )}
-              </label>
-              <select
-                className="modal-select"
-                value={detectedFromVersion !== 'vanilla' ? detectedFromVersion : loader}
-                onChange={e => setLoader(e.target.value)}
-                disabled={detectedFromVersion !== 'vanilla'}
-                style={{ opacity: detectedFromVersion !== 'vanilla' ? 0.75 : 1 }}
-              >
-                <option value="vanilla">Vanilla</option>
-                <option value="fabric">Fabric</option>
-                <option value="forge">Forge</option>
-                <option value="neoforge">NeoForge</option>
-                <option value="quilt">Quilt</option>
-              </select>
+              </div>
+
+              <div className="modal-field" style={{ margin: 0 }}>
+                <label className="modal-label">
+                  <span>{t('instances.loaderLabel')}</span>
+                  {detectedFromVersion !== 'vanilla' && (
+                    <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>
+                      {t('instances.autoDetected')}
+                    </span>
+                  )}
+                </label>
+                <select
+                  className="modal-select"
+                  value={effectiveLoader}
+                  onChange={e => {
+                    setLoader(e.target.value);
+                    setLoaderVersion('');
+                  }}
+                  disabled={detectedFromVersion !== 'vanilla'}
+                  style={{ opacity: detectedFromVersion !== 'vanilla' ? 0.75 : 1 }}
+                >
+                  <option value="vanilla">Vanilla</option>
+                  <option value="fabric">Fabric</option>
+                  <option value="forge">Forge</option>
+                  <option value="neoforge">NeoForge</option>
+                  <option value="quilt">Quilt</option>
+                </select>
+              </div>
+            </div>
+
+            {loaderVersionOptions.length > 0 && (
+              <div className="modal-field" style={{ margin: 0 }}>
+                <label className="modal-label">
+                  <span>{t('instances.loaderVersionLabel')}</span>
+                </label>
+                <select
+                  className="modal-select"
+                  value={resolvedLoaderVersion}
+                  onChange={e => setLoaderVersion(e.target.value)}
+                >
+                  {loaderVersionOptions.map(lv => (
+                    <option key={lv} value={lv}>{lv}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              {onToggleSnapshots && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(showSnapshots)}
+                    onChange={() => {
+                      const nextSnap = !showSnapshots;
+                      snapshotFetchAttemptRef.current = false;
+                      setFetchingMojang(true);
+                      if (onToggleSnapshots) {
+                        onToggleSnapshots(nextSnap);
+                      } else {
+                        handleRefreshMojang(nextSnap);
+                      }
+                    }}
+                  />
+                  <span>{t('install.showSnapshots')}</span>
+                </label>
+              )}
+
+              {needsInstall && (effectiveLoader === 'vanilla' || resolvedLoaderVersion) && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--accent-bright)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoInstallMissing}
+                    onChange={e => setAutoInstallMissing(e.target.checked)}
+                  />
+                  <span>{t('instances.autoInstallVersion')}</span>
+                </label>
+              )}
             </div>
           </div>
 
@@ -380,6 +655,18 @@ export function InstanceModal({
                   <label className="modal-label">
                     <span>{t('instances.jvmArgs')}</span>
                   </label>
+                  <div className="jvm-preset-row">
+                    {JVM_PRESETS.map(preset => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`jvm-preset-chip ${jvmArguments.trim() === preset.args ? 'active' : ''}`}
+                        onClick={() => setJvmArguments(preset.args)}
+                      >
+                        {t(preset.labelKey) || preset.fallbackLabel}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     className="modal-input"
                     value={jvmArguments}
@@ -392,10 +679,9 @@ export function InstanceModal({
                   <label className="modal-label">
                     <span>{t('instances.javaPath')}</span>
                   </label>
-                  <input
-                    className="modal-input"
+                  <JavaRuntimePicker
                     value={javaPath}
-                    onChange={e => setJavaPath(e.target.value)}
+                    onChange={setJavaPath}
                     placeholder={t('instances.javaPathPlaceholder')}
                   />
                 </div>

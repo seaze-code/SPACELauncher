@@ -2,16 +2,17 @@ import { app, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
-import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import { loadLauncherState } from '../../src/lib/launcherState.js';
+import { downloadFileAtomic, fetchWithRetry } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const UPDATE_REPOSITORY = 'CesarGarza55/OpenLauncher';
+const UPDATE_REPOSITORY = process.env.SPACELAUNCHER_UPDATE_REPO || 'seaze-code/SPACELauncher';
 const UPDATE_RELEASES_API = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/latest`;
 const UPDATE_RELEASES_PAGE = `https://github.com/${UPDATE_REPOSITORY}/releases/latest`;
+const UPDATER_USER_AGENT = 'SpaceLauncher-Updater/1.0.0';
 
 const localeCache = new Map();
 
@@ -140,30 +141,20 @@ export function pickUpdateAsset(release) {
 
 export async function downloadFileToPath(url, outPath, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'OpenLauncher-Updater', Accept: 'application/octet-stream' },
-  });
-  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-  await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
-  const total = Number(response.headers.get('content-length')) || null;
-  let loaded = 0;
   let lastProgressTime = 0;
-  const readable = Readable.fromWeb(response.body);
-  const writable = fs.createWriteStream(outPath);
-  readable.on('data', (chunk) => {
-    loaded += chunk.length;
-    const now = Date.now();
-    if (now - lastProgressTime > 100 || (total && loaded >= total)) {
-      lastProgressTime = now;
-      const percent = total ? Math.round((loaded / total) * 100) : null;
-      onProgress?.({ loaded, total, percent });
-    }
-  });
-  await new Promise((resolve, reject) => {
-    readable.pipe(writable);
-    writable.on('finish', resolve);
-    writable.on('error', reject);
-    readable.on('error', reject);
+  await downloadFileAtomic(url, outPath, {
+    headers: { 'User-Agent': UPDATER_USER_AGENT, Accept: 'application/octet-stream' },
+    timeoutMs: 120000,
+    retries: 2,
+    onProgress: (loaded, total) => {
+      const now = Date.now();
+      const safeTotal = total || null;
+      if (now - lastProgressTime > 100 || (safeTotal && loaded >= safeTotal)) {
+        lastProgressTime = now;
+        const percent = safeTotal ? Math.round((loaded / safeTotal) * 100) : null;
+        onProgress?.({ loaded, total: safeTotal, percent });
+      }
+    },
   });
   return outPath;
 }
@@ -278,7 +269,7 @@ export async function downloadAndApplyUpdate(updatePayload = {}, { onEvent = nul
 
   const updatesDir = path.join(app.getPath('userData'), 'updates');
   await fs.promises.mkdir(updatesDir, { recursive: true });
-  const downloadPath = path.join(updatesDir, String(asset.name || `OpenLauncher-${latestVersion}`));
+  const downloadPath = path.join(updatesDir, String(asset.name || `SpaceLauncher-${latestVersion}`));
   try { await fs.promises.rm(downloadPath, { force: true }).catch(() => { }); } catch { }
 
   await downloadFileToPath(asset.browser_download_url, downloadPath, {
@@ -305,9 +296,15 @@ export async function checkForLauncherUpdate({ onEvent = null } = {}) {
   const updaterStrings = await getUpdaterStrings(await getPreferredLanguage());
   onEvent?.('minecraft:update-status', { phase: 'checking', currentVersion, message: updaterStrings.checking });
 
-  const response = await fetch(UPDATE_RELEASES_API, {
-    headers: { 'User-Agent': 'OpenLauncher-Updater', Accept: 'application/vnd.github+json' },
-  });
+  const response = await fetchWithRetry(
+    UPDATE_RELEASES_API,
+    { headers: { 'User-Agent': UPDATER_USER_AGENT, Accept: 'application/vnd.github+json' } },
+    { retries: 1, timeoutMs: 12000 }
+  );
+  if (response.status === 404) {
+    onEvent?.('minecraft:update-status', { phase: 'up-to-date', currentVersion, latestVersion: currentVersion, message: updaterStrings.upToDate });
+    return { ok: true, available: false, upToDate: true, unavailable: true, currentVersion };
+  }
   if (!response.ok) throw new Error(`Failed to check updates: ${response.status}`);
   const release = await response.json();
   const latestVersion = normalizeReleaseVersionTag(release);

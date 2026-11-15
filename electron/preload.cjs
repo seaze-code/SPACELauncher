@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld('launcher', {
   minecraftGetCatalog(options) {
     return ipcRenderer.invoke('minecraft:get-catalog', options);
   },
+  minecraftGetHomeFeed(options) {
+    return ipcRenderer.invoke('minecraft:get-home-feed', options);
+  },
+  minecraftGetPatchNoteDetail(contentPath) {
+    return ipcRenderer.invoke('minecraft:get-patch-note-detail', contentPath);
+  },
   minecraftGetState() {
     return ipcRenderer.invoke('minecraft:get-state');
   },
@@ -42,6 +48,9 @@ contextBridge.exposeInMainWorld('launcher', {
   deleteInstance(id) {
     return ipcRenderer.invoke('instances:delete', id);
   },
+  duplicateInstance(id, newName) {
+    return ipcRenderer.invoke('instances:duplicate', { id, newName });
+  },
   scanBaseDirectory() {
     return ipcRenderer.invoke('instances:scan-base');
   },
@@ -51,11 +60,11 @@ contextBridge.exposeInMainWorld('launcher', {
   pickInstanceImage() {
     return ipcRenderer.invoke('instances:pick-image');
   },
-  minecraftGetNews() {
-    return ipcRenderer.invoke('minecraft:get-news');
+  javaDetectAll(options) {
+    return ipcRenderer.invoke('java:detect-all', options);
   },
-  minecraftGetArticle(url) {
-    return ipcRenderer.invoke('minecraft:get-article', url);
+  javaPickExecutable() {
+    return ipcRenderer.invoke('java:pick-executable');
   },
   minecraftToggleMod(modId, enable, instanceId) {
     return ipcRenderer.invoke('minecraft:toggle-mod', { modId, enable, instanceId });
@@ -105,6 +114,15 @@ contextBridge.exposeInMainWorld('launcher', {
   minecraftPickContentFiles(type) {
     return ipcRenderer.invoke('minecraft:pick-content-files', type);
   },
+  minecraftPickModpackFile() {
+    return ipcRenderer.invoke('minecraft:pick-modpack-file');
+  },
+  minecraftInstallLocalModpack(payload) {
+    return ipcRenderer.invoke('minecraft:install-local-modpack', payload);
+  },
+  minecraftInstallModrinthModpack(payload) {
+    return ipcRenderer.invoke('minecraft:install-modrinth-modpack', payload);
+  },
   minecraftSaveState(state) {
     return ipcRenderer.invoke('minecraft:save-state', state);
   },
@@ -114,8 +132,41 @@ contextBridge.exposeInMainWorld('launcher', {
   minecraftLogin(profileKey) {
     return ipcRenderer.invoke('minecraft:login', profileKey);
   },
+  minecraftLoginCancel(profileKey) {
+    return ipcRenderer.invoke('minecraft:login-cancel', profileKey);
+  },
   minecraftLogout(profileKey) {
     return ipcRenderer.invoke('minecraft:logout', profileKey);
+  },
+  skinGetLibrary() {
+    return ipcRenderer.invoke('skin:get-library');
+  },
+  skinFetchTexture(textureUrl) {
+    return ipcRenderer.invoke('skin:fetch-texture', textureUrl);
+  },
+  skinImportUsername(username) {
+    return ipcRenderer.invoke('skin:import-username', username);
+  },
+  skinPickFile() {
+    return ipcRenderer.invoke('skin:pick-file');
+  },
+  skinSaveLocal(payload) {
+    return ipcRenderer.invoke('skin:save-local', payload);
+  },
+  skinSetProfileLocal(payload) {
+    return ipcRenderer.invoke('skin:set-profile-local', payload);
+  },
+  skinDeleteLocal(id) {
+    return ipcRenderer.invoke('skin:delete-local', id);
+  },
+  skinApplyMicrosoft(payload) {
+    return ipcRenderer.invoke('skin:apply-microsoft', payload);
+  },
+  skinSetMicrosoftCape(payload) {
+    return ipcRenderer.invoke('skin:set-microsoft-cape', payload);
+  },
+  skinResetMicrosoft(profileKey) {
+    return ipcRenderer.invoke('skin:reset-microsoft', profileKey);
   },
   minecraftCheckUpdate() {
     return ipcRenderer.invoke('minecraft:check-update');
@@ -134,6 +185,12 @@ contextBridge.exposeInMainWorld('launcher', {
   },
   getAppVersion() {
     return ipcRenderer.invoke('app:get-version');
+  },
+  getSystemTheme() {
+    return ipcRenderer.invoke('app:get-system-theme');
+  },
+  setWindowTheme(resolvedTheme) {
+    return ipcRenderer.invoke('app:set-window-theme', resolvedTheme);
   },
   getSystemInfo() {
     return ipcRenderer.invoke('system:get-info');

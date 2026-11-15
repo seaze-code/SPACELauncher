@@ -1,17 +1,17 @@
-; OpenLauncher Electron installer using a Python-launcher-like NSIS flow
+﻿; SpaceLauncher Electron installer using a Python-launcher-like NSIS flow
 ; Input:  ..\release\win-unpacked
-; Output: ..\release\OpenLauncher.exe
+; Output: ..\release\SpaceLauncher.exe
 
 SetCompressor /SOLID lzma
-Name "OpenLauncher"
+Name "SpaceLauncher"
 
-!define APPNAME "OpenLauncher"
-!define APP_EXE "OpenLauncher.exe"
+!define APPNAME "SpaceLauncher"
+!define APP_EXE "SpaceLauncher.exe"
 !define FILE_DIR "..\release\win-unpacked"
-!define OUT_FILE "..\release\OpenLauncher.exe"
-!define DEVELOPER "CesarGarza55"
-!define HELPURL "https://github.com/CesarGarza55/OpenLauncher"
-!define ABOUTURL "https://github.com/CesarGarza55/OpenLauncher"
+!define OUT_FILE "..\release\SpaceLauncher.exe"
+!define DEVELOPER "Sea"
+!define HELPURL "https://github.com/seaze-code/SPACELauncher"
+!define ABOUTURL "https://github.com/seaze-code/SPACELauncher"
 
 ; Use custom resources
 !define ICON_FILE "icon.ico"

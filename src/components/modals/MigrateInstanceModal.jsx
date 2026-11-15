@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useI18n } from '../../context/I18nContext';
 import { ICONS } from '../../constants/icons';
 import { Icon } from '../common/CommonComponents';
@@ -6,6 +6,7 @@ import { MINECRAFT_INSTANCE_ICONS } from '../../constants/instanceIcons';
 
 export function MigrateInstanceModal({
   availableVersions = [],
+  versionCatalog = [],
   systemTotalRam = 8,
   onClose,
   onMigrate,
@@ -16,8 +17,13 @@ export function MigrateInstanceModal({
   const [loadingScan, setLoadingScan] = useState(true);
   const [isMigrating, setIsMigrating] = useState(false);
 
+  const mojangReleases = useMemo(
+    () => versionCatalog.filter(v => v.type === 'vanilla'),
+    [versionCatalog]
+  );
+
   const [name, setName] = useState(t('migration.defaultName'));
-  const [version, setVersion] = useState(availableVersions[0]?.id || '1.21.1');
+  const [version, setVersion] = useState(availableVersions[0]?.id || mojangReleases[0]?.mcVer || mojangReleases[0]?.id || '1.21.4');
   const [icon, setIcon] = useState('crafting_table');
   const [ram, setRam] = useState(4);
   const [moveMode, setMoveMode] = useState(false); // false = copy (default, safe), true = convert (move)
@@ -194,20 +200,34 @@ export function MigrateInstanceModal({
               <label className="modal-label">
                 <span>{t('instances.versionLabel')}</span>
               </label>
-              {availableVersions.length > 0 ? (
+              {availableVersions.length > 0 || mojangReleases.length > 0 ? (
                 <select className="modal-select" value={version} onChange={e => setVersion(e.target.value)}>
-                  {availableVersions.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.label || v.id}
-                    </option>
-                  ))}
+                  {availableVersions.length > 0 && (
+                    <optgroup label={t('instances.installedGroup')}>
+                      {availableVersions.map(v => (
+                        <option key={`inst-${v.id}`} value={v.id}>
+                          {v.label || v.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {mojangReleases.length > 0 && (
+                    <optgroup label={t('instances.mojangGroup')}>
+                      {mojangReleases.map(v => {
+                        const mcVer = v.mcVer || v.id;
+                        return (
+                          <option key={`moj-${v.id}`} value={mcVer}>
+                            {mcVer}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
                 </select>
               ) : (
-                <input
-                  className="modal-input"
-                  value={version}
-                  onChange={e => setVersion(e.target.value)}
-                />
+                <div className="modal-input" style={{ display: 'flex', alignItems: 'center', minHeight: 34, fontSize: 12, color: 'var(--text-muted)' }}>
+                  {t('instances.loadingMojang')}
+                </div>
               )}
             </div>
           </div>

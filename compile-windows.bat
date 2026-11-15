@@ -1,14 +1,14 @@
-@echo off
+﻿@echo off
 setlocal EnableDelayedExpansion
 
 REM ==============================================================================
-REM OpenLauncher - Interactive Windows
+REM SpaceLauncher - Interactive Windows
 REM High-performance builder for Windows distributions (NSIS, Portable, Directory)
 REM ==============================================================================
 
 cls
 echo.
-echo   OpenLauncher - Windows
+echo   SpaceLauncher - Windows
 echo  -------------------------------------------------------------
 echo.
 
@@ -42,7 +42,7 @@ if "%build_choice%"=="" set "build_choice=1"
 
 cls
 echo.
-echo   OpenLauncher - Windows
+echo   SpaceLauncher - Windows
 echo  -------------------------------------------------------------
 echo   [1/4] Cleaning previous builds...
 echo.
@@ -57,7 +57,7 @@ echo   [OK] Clean completed.
 
 cls
 echo.
-echo   OpenLauncher - Windows
+echo   SpaceLauncher - Windows
 echo  -------------------------------------------------------------
 echo   [2/4] Compiling Frontend (Vite + React 19)...
 echo.
@@ -71,7 +71,7 @@ echo   [OK] Frontend compiled into dist\
 if "%build_choice%"=="5" (
     cls
     echo.
-    echo   OpenLauncher - Windows
+    echo   SpaceLauncher - Windows
     echo  -------------------------------------------------------------
     echo   [OK] Frontend compilation complete!
     echo.
@@ -81,7 +81,7 @@ if "%build_choice%"=="5" (
 if "%build_choice%"=="4" (
     cls
     echo.
-    echo   OpenLauncher - Windows
+    echo   SpaceLauncher - Windows
     echo  -------------------------------------------------------------
     echo   [3/4] Packaging unpacked directory...
     echo.
@@ -93,7 +93,7 @@ if "%build_choice%"=="4" (
 if "%build_choice%"=="2" (
     cls
     echo.
-    echo   OpenLauncher - Windows
+    echo   SpaceLauncher - Windows
     echo  -------------------------------------------------------------
     echo   [3/4] Packaging portable Windows executable...
     echo.
@@ -105,7 +105,7 @@ if "%build_choice%"=="2" (
 REM Handle NSIS custom build or Full build
 cls
 echo.
-echo   OpenLauncher - Windows
+echo   SpaceLauncher - Windows
 echo  -------------------------------------------------------------
 echo   [3/4] Packaging Windows binaries...
 echo.
@@ -136,7 +136,7 @@ if not "%MAKENSIS_PATH%"=="" (
 if "%build_choice%"=="1" (
     cls
     echo.
-    echo   OpenLauncher - Windows
+    echo   SpaceLauncher - Windows
     echo  -------------------------------------------------------------
     echo   [4/4] Building portable executable...
     echo.
@@ -147,7 +147,7 @@ if "%build_choice%"=="1" (
 :summary
 cls
 echo.
-echo   OpenLauncher - Windows
+echo   SpaceLauncher - Windows
 echo  -------------------------------------------------------------
 echo   [OK] Build completed successfully!
 echo.

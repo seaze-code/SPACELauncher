@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "OpenLauncher"
+    "name": "SpaceLauncher"
   },
   "common": {
     "required": "Obligatoire",
@@ -27,7 +27,9 @@
     "console": "Console",
     "settings": "Paramètres",
     "modManager": "Mods",
-    "newProfile": "Nouveau profil"
+    "newProfile": "Nouveau profil",
+    "overview": "Centre",
+    "content": "Contenu"
   },
   "explore": {
     "title": "Explorer Modrinth",
@@ -39,7 +41,10 @@
     "browseMods": "Explorer les mods sur Modrinth",
     "browseShaders": "Explorer les shaders sur Modrinth",
     "browseResourcePacks": "Explorer les textures sur Modrinth",
-    "browseDatapacks": "Explorer les data packs sur Modrinth"
+    "browseDatapacks": "Explorer les data packs sur Modrinth",
+    "resultsCount": "{count} résultats",
+    "installingTo": "Cible : {name}",
+    "resetFilters": "Réinitialiser"
   },
   "profile": {
     "active": "Actif",
@@ -132,15 +137,34 @@
     "french": "Français",
     "aboutButton": "À propos",
     "aboutTitle": "À propos de cette application",
-    "aboutDescription": "OpenLauncher est un launcher Minecraft léger avec gestion de profils, contrôle des mods et gestion des mises à jour.",
+    "aboutDescription": "SpaceLauncher est un launcher Minecraft rapide et moderne conçu pour les instances isolées et la gestion des mods.",
     "versionLabel": "Version",
     "devBuild": "build dev",
     "openSourceCode": "Code source",
     "openReleases": "Releases",
     "licenseLabel": "Licence: {license}",
-    "aboutPlatform": "Windows et Linux",
+    "aboutPlatform": "Windows, macOS et Linux",
     "openSourceLabel": "Open source",
-    "developedByLabel": "Développé par {developer}"
+    "developedByLabel": "Développé par {developer}",
+    "thai": "ไทย (Thaï)",
+    "scanJava": "Scanner Java",
+    "scanningJava": "Analyse...",
+    "noJavaFound": "Aucun environnement Java détecté.",
+    "selectJavaRuntime": "Choisir un Java détecté...",
+    "browseJava": "Parcourir...",
+    "theme": "Thème du launcher",
+    "themeDesc": "Choisissez la palette d'affichage de SpaceLauncher.",
+    "themeObsidian": "Orbital Obsidian",
+    "themeNebula": "Cosmic Nebula",
+    "themeEmerald": "Aurora Station",
+    "themeAmber": "Solar Flare",
+    "compactMode": "Affichage compact",
+    "compactModeDesc": "Réduit les marges des cartes et barres.",
+    "reduceMotion": "Réduire les animations",
+    "reduceMotionDesc": "Limite les transitions et effets visuels.",
+    "quickThemeCycle": "Changer de thème ({theme})",
+    "openLogsDirectory": "Ouvrir logs",
+    "clearLogs": "Vider les logs"
   },
   "about": {
     "cards": {
@@ -173,7 +197,8 @@
       "info": "Info",
       "warn": "Warn",
       "error": "Erreur"
-    }
+    },
+    "searchPlaceholder": "Filtrer les journaux..."
   },
   "news": {
     "title": "Actualités officielles de Minecraft",
@@ -333,7 +358,12 @@
     "conflictLoaderOutput": "Voir le diagnostic technique du loader",
     "conflictRawFallback": "Fabric Loader a détecté des mods incompatibles.",
     "conflictOpenModsFolder": "Ouvrir le dossier des mods",
-    "conflictDismiss": "Fermer"
+    "conflictDismiss": "Fermer",
+    "filterAll": "Tous",
+    "filterEnabled": "Activés",
+    "filterDisabled": "Désactivés",
+    "filterUpdates": "Mises à jour",
+    "updateAllCount": "Tout mettre à jour ({count})"
   },
   "account": {
     "loggedIn": "Connecté",
@@ -390,7 +420,7 @@
     "modDeleted": "Mod {name} supprimé.",
     "deleteCancelled": "Suppression annulée pour {name}.",
     "modDeleteFailed": "Échec de la suppression du mod : {error}",
-    "selectJarOrOlpkg": "Sélectionnez uniquement les fichiers .jar ou .olpkg.",
+    "selectJarOrOlpkg": "Sélectionnez uniquement des fichiers .jar, .disabled, .slpkg ou .olpkg.",
     "noFilePath": "Aucun chemin de fichier disponible pour {name}.",
     "importedMod": "Mod importé {name}",
     "skippedFile": "Ignoré {name}.",
@@ -426,7 +456,7 @@
     "downloading": "Téléchargement de {assetName}",
     "launching": "Lancement de la mise à jour téléchargée",
     "updateAvailableTitle": "Mise à jour disponible",
-    "updateAvailableMessage": "OpenLauncher {latestVersion} est disponible.",
+    "updateAvailableMessage": "SpaceLauncher {latestVersion} est disponible.",
     "detailWithAsset": "Version actuelle : {currentVersion}\nFichier de mise à jour : {assetName}",
     "detailWithoutAsset": "Version actuelle : {currentVersion}\nAucun fichier exécutable trouvé pour cette plateforme, la page de la version va s'ouvrir.",
     "downloadAndInstall": "Télécharger et installer",
@@ -508,7 +538,35 @@
     "selectInstance": "Sélectionner",
     "selectedInstance": "Sélectionnée",
     "environmentBadgeInstance": "INSTANCE",
-    "environmentBadgeGlobal": "GLOBALE"
+    "environmentBadgeGlobal": "GLOBALE",
+    "duplicate": "Dupliquer l’instance",
+    "duplicateSuccessTitle": "Instance dupliquée",
+    "duplicateSuccessMessage": "Copie \"{name}\" créée.",
+    "lastPlayedLabel": "Dernière session",
+    "neverPlayed": "Jamais lancé",
+    "sortRecent": "Récents",
+    "sortName": "Nom (A-Z)",
+    "sortMods": "Plus de mods",
+    "manageContent": "Gérer",
+    "browseModrinth": "Ajouter via Modrinth",
+    "jvmPresets": "Préréglages JVM",
+    "jvmPresetDefault": "Par défaut",
+    "jvmPresetAikar": "Aikar's G1GC",
+    "jvmPresetZgc": "Gen ZGC (Java 21+)",
+    "jvmPresetLowRam": "Petite RAM (<=4G)",
+    "savesFolder": "Mondes",
+    "screenshotsFolder": "Captures",
+    "logsFolder": "Logs",
+    "configFolder": "Config",
+    "playtime": "Joué {time}",
+    "installedGroup": "Installées",
+    "mojangGroup": "Versions officielles Mojang",
+    "snapshotsGroup": "Snapshots Mojang",
+    "loadingMojang": "Chargement depuis Mojang...",
+    "refreshMojang": "Actualiser depuis Mojang",
+    "loaderVersionLabel": "Version du loader",
+    "autoInstallVersion": "Télécharger et installer automatiquement si manquant",
+    "versionSearchPlaceholder": "Filtrer les versions Mojang (ex. 1.21, 1.20.1)..."
   },
   "accountModal": {
     "manageTitle": "Gérer le compte",
@@ -553,5 +611,12 @@
     "successTitle": "Migration terminée",
     "copiedMessage": "L'instance \"{name}\" a été créée en copiant vos fichiers avec succès.",
     "convertedMessage": "L'instance \"{name}\" a été créée en déplaçant vos fichiers avec succès."
+  },
+  "play": {
+    "launchDeck": "Poste de lancement",
+    "environmentInstance": "Instance isolée",
+    "environmentGlobal": "Global .minecraft",
+    "readyToLaunch": "Prêt à lancer",
+    "installingPhase": "Installation..."
   }
 }

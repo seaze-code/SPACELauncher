@@ -84,7 +84,7 @@ export function ProjectDetailView({
   const projectId = currentProject?.project_id || currentProject?.slug || currentProject?.modId || currentProject?.id;
   const targetSlug = projectDetails?.slug || currentProject?.slug || projectId;
   const modrinthUrl = targetSlug
-    ? `https://modrinth.com/${projectType === 'shader' ? 'shader' : projectType === 'resourcepack' ? 'resourcepack' : projectType === 'datapack' ? 'datapack' : 'mod'}/${targetSlug}`
+    ? `https://modrinth.com/${projectType === 'shader' ? 'shader' : projectType === 'resourcepack' ? 'resourcepack' : projectType === 'datapack' ? 'datapack' : projectType === 'modpack' ? 'modpack' : 'mod'}/${targetSlug}`
     : 'https://modrinth.com';
 
   const handleOpenExternal = (url) => {

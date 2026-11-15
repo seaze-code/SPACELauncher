@@ -1,8 +1,12 @@
+import { fetchHomeFeed, fetchPatchNoteDetail } from '../lib/mojangNews';
+
 const launcherFallback = {
   platform: 'browser',
   isMac: typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform),
   systemTotalRamGb: 8,
   minecraftGetCatalog: () => Promise.resolve(null),
+  minecraftGetHomeFeed: (options) => fetchHomeFeed(options),
+  minecraftGetPatchNoteDetail: (contentPath) => fetchPatchNoteDetail(contentPath),
   minecraftGetState: () => Promise.resolve(null),
   minecraftGetRoot: () => Promise.resolve({ root: '' }),
   minecraftOpenRootDirectory: () => Promise.resolve({ skipped: true }),
@@ -14,17 +18,13 @@ const launcherFallback = {
   getInstances: () => Promise.resolve([]),
   createInstance: (payload) => Promise.resolve({ ok: true, instance: payload }),
   updateInstance: (id, updates) => Promise.resolve({ ok: true, instance: { id, ...updates } }),
+  duplicateInstance: (id, newName) => Promise.resolve({ ok: true, instance: { id: `${id}-copy`, name: newName || 'Copy' } }),
   deleteInstance: (id) => Promise.resolve({ ok: true, id }),
   scanBaseDirectory: () => Promise.resolve({ modsCount: 0, shaderpacksCount: 0, resourcepacksCount: 0, savesCount: 0, hasConfig: false, hasOptions: false }),
   migrateBaseToInstance: (payload) => Promise.resolve({ ok: true, instance: { id: 'migrated', ...payload } }),
   pickInstanceImage: () => Promise.resolve({ canceled: true }),
-  minecraftGetNews: () => Promise.resolve({ items: [], sourceUrl: 'https://www.minecraft.net/en-us/articles' }),
-  minecraftGetArticle: (url) => {
-    if (typeof window !== 'undefined' && window.launcher?.invoke) {
-      return window.launcher.invoke('minecraft:get-article', url);
-    }
-    return Promise.resolve(null);
-  },
+  javaDetectAll: () => Promise.resolve({ ok: true, installations: [] }),
+  javaPickExecutable: () => Promise.resolve({ canceled: true }),
   minecraftToggleMod: () => Promise.resolve({ ok: true }),
   minecraftDeleteMod: () => Promise.resolve({ ok: true }),
   minecraftDeleteShader: () => Promise.resolve({ ok: true }),
@@ -34,7 +34,10 @@ const launcherFallback = {
   minecraftImportContentFile: () => Promise.resolve({ ok: true }),
   minecraftPickContentFiles: () => Promise.resolve({ canceled: true, filePaths: [] }),
   minecraftInstallModFile: () => Promise.resolve({ ok: true }),
-  minecraftPickModFiles: () => Promise.resolve([]),
+  minecraftPickModFiles: () => Promise.resolve({ canceled: true, filePaths: [] }),
+  minecraftPickModpackFile: () => Promise.resolve({ canceled: true, filePath: null }),
+  minecraftInstallLocalModpack: () => Promise.resolve({ error: 'Desktop app required for modpack installation' }),
+  minecraftInstallModrinthModpack: () => Promise.resolve({ error: 'Desktop app required for modpack installation' }),
   minecraftSaveState: () => Promise.resolve({ ok: true }),
   minecraftSetAllModsEnabled: () => Promise.resolve({ ok: true }),
   minecraftGetAuthState: (profileKey, options) => {
@@ -48,8 +51,14 @@ const launcherFallback = {
       return window.launcher.invoke('minecraft:login', profileKey);
     }
     return Promise.resolve({
-      error: 'El inicio de sesión interactivo con Microsoft requiere ejecutar la aplicación de escritorio Electron.',
+      error: 'Interactive Microsoft login requires running inside SpaceLauncher desktop app.',
     });
+  },
+  minecraftLoginCancel: (profileKey) => {
+    if (typeof window !== 'undefined' && window.launcher?.invoke) {
+      return window.launcher.invoke('minecraft:login-cancel', profileKey);
+    }
+    return Promise.resolve({ ok: true });
   },
   minecraftLogout: (profileKey) => {
     if (typeof window !== 'undefined' && window.launcher?.invoke) {
@@ -64,8 +73,12 @@ const launcherFallback = {
     }
     return Promise.resolve({ skipped: true });
   },
-  getAppVersion: () => Promise.resolve(''),
-  getSystemInfo: () => Promise.resolve({}),
+  getAppVersion: () => Promise.resolve('1.0.0'),
+  getSystemTheme: () => Promise.resolve(
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  ),
+  setWindowTheme: () => Promise.resolve({ ok: true }),
+  getSystemInfo: () => Promise.resolve({ totalRamGb: 8 }),
   minecraftInstall: (opts) => {
     if (typeof window !== 'undefined' && window.launcher?.invoke) {
       return window.launcher.invoke('minecraft:install', opts);
@@ -93,7 +106,9 @@ const launcherFallback = {
   windowMinimize: () => { },
   windowMaximize: () => { },
   windowClose: () => { },
-  openExternal: () => { },
+  openExternal: (url) => {
+    if (typeof window !== 'undefined' && url) window.open(url, '_blank', 'noopener,noreferrer');
+  },
   invoke: () => Promise.resolve(),
   on: () => () => { },
 };
@@ -114,6 +129,7 @@ export const launcher = new Proxy({}, {
         if (prop === 'minecraftStop') return (opts) => window.launcher.invoke('minecraft:stop', opts);
         if (prop === 'minecraftInstallCancel') return (opts) => window.launcher.invoke('minecraft:install-cancel', opts);
         if (prop === 'minecraftLogin') return (key) => window.launcher.invoke('minecraft:login', key);
+        if (prop === 'minecraftLoginCancel') return (key) => window.launcher.invoke('minecraft:login-cancel', key);
         if (prop === 'minecraftLogout') return (key) => window.launcher.invoke('minecraft:logout', key);
         if (prop === 'minecraftGetAuthState') return (key, opts) => window.launcher.invoke('minecraft:get-auth-state', key, opts);
         if (prop === 'minecraftCheckUpdate') return () => window.launcher.invoke('minecraft:check-update');
@@ -128,8 +144,21 @@ export const launcher = new Proxy({}, {
 });
 
 export const minecraftLoginWithAbort = async (profileKey, abortSignal) => {
-  if (typeof window !== 'undefined' && window.launcher?.minecraftLogin) {
-    return await window.launcher.minecraftLogin(profileKey, abortSignal);
+  const cancelHandler = () => {
+    launcher.minecraftLoginCancel?.(profileKey).catch(() => {});
+  };
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      cancelHandler();
+      return { error: 'Login cancelled by user', cancelled: true };
+    }
+    abortSignal.addEventListener('abort', cancelHandler, { once: true });
   }
-  return await launcher.minecraftLogin(profileKey);
+  try {
+    return await launcher.minecraftLogin(profileKey);
+  } finally {
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', cancelHandler);
+    }
+  }
 };

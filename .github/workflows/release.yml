@@ -63,7 +63,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
@@ -74,12 +74,24 @@ jobs:
       - name: Build Electron app folder
         run: npx electron-builder --win --dir
 
+      - name: Create Windows x64 archive for Web Installer
+        shell: pwsh
+        run: |
+          cd release/win-unpacked
+          if (Get-Command 7z -ErrorAction SilentlyContinue) {
+            7z a -tzip ../SpaceLauncher-Windows-x64.zip * -mx=9
+          } else {
+            Compress-Archive -Path * -DestinationPath ../SpaceLauncher-Windows-x64.zip -CompressionLevel Optimal -Force
+          }
+          cd ../..
+
       - name: Install NSIS
         run: choco install nsis -y
 
-      - name: Build NSIS installer with custom script
+      - name: Build NSIS installers (Web Installer + Full Offline Installer)
         run: |
           cd script
+          & "C:\Program Files (x86)\NSIS\makensis.exe" compile-web-installer.nsi
           & "C:\Program Files (x86)\NSIS\makensis.exe" compile-electron.nsi
           cd ..
 
@@ -92,6 +104,7 @@ jobs:
           name: windows-build
           path: |
             release/*.exe
+            release/*.zip
 
   build-linux:
     needs: check-version
@@ -113,7 +126,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
@@ -144,7 +157,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install

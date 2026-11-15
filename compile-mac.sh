@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -e
 
 # ==============================================================================
-# OpenLauncher - Interactive macOS 
+# SpaceLauncher - Interactive macOS 
 # High-performance builder for macOS distributions (DMG, ZIP, Universal)
 # ==============================================================================
 
@@ -27,7 +27,7 @@ NC='\033[0m'
 print_banner() {
     clear
     echo ""
-    echo -e "  ${BRIGHT_CYAN}◆${NC} ${BOLD}OpenLauncher${NC} ${DIM}•${NC} ${BRIGHT_BLUE}macOS${NC}"
+    echo -e "  ${BRIGHT_CYAN}◆${NC} ${BOLD}SpaceLauncher${NC} ${DIM}•${NC} ${BRIGHT_BLUE}macOS${NC}"
     echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
     echo ""
 }

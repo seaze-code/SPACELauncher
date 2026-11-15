@@ -1,9 +1,14 @@
 {
-  "name": "OpenLauncher",
+  "name": "spacelauncher",
   "private": true,
-  "version": "1.1.4",
-  "description": "OpenLauncher is an open source Minecraft launcher developed by CesarGarza55",
-  "author": "CesarGarza55",
+  "version": "1.2.0",
+  "description": "SpaceLauncher — Clean, fast Minecraft launcher with isolated instances, Skin Studio, and Modrinth integration",
+  "author": "Sea",
+  "homepage": "https://github.com/seaze-code/SPACELauncher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seaze-code/SPACELauncher.git"
+  },
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -49,8 +54,8 @@
     "wait-on": "^9.5.1"
   },
   "build": {
-    "appId": "com.codevbox.openlauncher",
-    "productName": "OpenLauncher",
+    "appId": "com.spacelauncher.app",
+    "productName": "SpaceLauncher",
     "directories": {
       "output": "release"
     },
@@ -103,7 +108,7 @@
         }
       ],
       "category": "Game",
-      "maintainer": "CesarGarza55",
+      "maintainer": "SpaceLauncher",
       "artifactName": "${productName}.${ext}",
       "icon": "script/icon.png"
     },
@@ -166,7 +171,9 @@
     },
     "electronLanguages": [
       "en-US",
-      "es"
+      "th",
+      "es",
+      "fr"
     ],
     "icon": "script/icon.ico"
   }

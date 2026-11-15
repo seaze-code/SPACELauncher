@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { useI18n } from '../../context/I18nContext';
 import { ICONS } from '../../constants/icons';
 import { Icon, Toggle } from '../common/CommonComponents';
-import { truncateText, cleanMinecraftText } from '../../utils/formatters';
+import { cleanMinecraftText } from '../../utils/formatters';
 
 export const ModCard = memo(function ModCard({ mod, updateInfo, updating, onToggle, onDelete, onUpdate, onOpenDetails }) {
   const { t } = useI18n();
@@ -222,55 +222,7 @@ export const ModrinthCardSkeleton = memo(function ModrinthCardSkeleton() {
   );
 });
 
-export const NewsCard = memo(function NewsCard({ item, onOpen }) {
-  const { t } = useI18n();
-  const metaText = [item.author, item.published].filter(Boolean).join(' · ');
-  const cardMeta = truncateText(metaText, 42);
-  const cardTitle = truncateText(item.title, 58);
-  const cardSummary = truncateText(item.summary, 132);
-
-  return (
-    <article
-      className="news-card"
-      onClick={() => onOpen(item)}
-      style={{ cursor: 'pointer' }}
-    >
-      <div className="news-card-media">
-        {item.image ? (
-          <img src={item.image} alt="" loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-        ) : (
-          <div className="news-card-media-fallback">
-            <Icon d={ICONS.news} size={24} />
-          </div>
-        )}
-      </div>
-      <div className="news-card-body">
-        <div className="news-card-meta">
-          <span>{t('news.officialLabel')}</span>
-          {cardMeta ? <span>· {cardMeta}</span> : null}
-        </div>
-        <div className="news-card-title">{cardTitle}</div>
-        {cardSummary ? <div className="news-card-summary">{cardSummary}</div> : null}
-        <div className="news-card-actions">
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(item);
-            }}
-            style={{ fontSize: 11, padding: '4px 10px', gap: 5 }}
-          >
-            <Icon d={ICONS.book} size={11} />
-            <span>{t('news.readArticle') || t('news.openArticle') || 'Leer artículo'}</span>
-          </button>
-        </div>
-      </div>
-    </article>
-  );
-});
-
-export const ProfileCardActions = memo(function ProfileCardActions({ active, name, disabled, onEdit, onDuplicate, onDelete }) {
+export const ProfileCardActions = memo(function ProfileCardActions({ name, disabled, onEdit, onDuplicate, onDelete }) {
   const { t } = useI18n();
 
   return (

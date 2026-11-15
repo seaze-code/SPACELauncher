@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, screen, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme, screen, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
@@ -103,9 +103,10 @@ export async function createMainWindow({ isDev, electronDir }) {
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
     frame: isMac ? true : false,
-    title: 'OpenLauncher',
-    backgroundColor: '#0e0e0e',
-    show: false,
+    title: 'SpaceLauncher',
+    icon: path.join(electronDir, '..', 'script', 'icon.png'),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#09090b' : '#f8f9fb',
+    show: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -123,9 +124,24 @@ export async function createMainWindow({ isDev, electronDir }) {
 
   mainWindow = new BrowserWindow(browserWindowOptions);
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+  const revealMainWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow.focus();
+  };
+
+  mainWindow.once('ready-to-show', revealMainWindow);
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(revealMainWindow, 120);
   });
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    console.error('Main window failed to load:', errorCode, errorDescription, validatedURL);
+    revealMainWindow();
+  });
+  setTimeout(revealMainWindow, 1800);
 
   // Intercept all popup windows (e.g. YouTube iframe "Mirar en YouTube" / links) and open in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -162,7 +178,7 @@ export async function createMainWindow({ isDev, electronDir }) {
   });
 
   if (isMac) {
-    // Build a macOS menu where "About OpenLauncher" opens the in-app modal
+    // Build a macOS menu where "About SpaceLauncher" opens the in-app modal
     // instead of Electron's default native About dialog.
     const macMenu = Menu.buildFromTemplate([
       {

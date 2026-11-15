@@ -1,8 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { getMinecraftRoot, getInstancesDir, getInstanceDir } from './paths.js';
+import { readJsonSafe, writeJsonAtomic, runWithConcurrency } from './utils.js';
 
-export const DEFAULT_INSTANCE_ICON = 'grass';
+export const DEFAULT_INSTANCE_ICON = 'grass_block';
+
+const MOD_EXTENSIONS = ['.jar', '.jar.disabled', '.slpkg', '.olpkg'];
+
+function isModFileName(fileName) {
+  const lower = String(fileName || '').toLowerCase();
+  return MOD_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
 
 export async function ensureInstancesDir() {
   const dir = getInstancesDir();
@@ -35,11 +43,13 @@ export async function getCustomIconDataUri(instancePath) {
     const iconFiles = ['icon.png', 'icon.jpg', 'icon.jpeg', 'icon.webp', 'icon.svg'];
     for (const name of iconFiles) {
       const fullPath = path.join(instancePath, name);
-      if (fs.existsSync(fullPath)) {
+      try {
+        const buf = await fs.promises.readFile(fullPath);
         const ext = path.extname(name).slice(1).toLowerCase();
         const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-        const buf = await fs.promises.readFile(fullPath);
         return `data:${mime};base64,${buf.toString('base64')}`;
+      } catch {
+        // try next
       }
     }
   } catch (err) {
@@ -50,7 +60,6 @@ export async function getCustomIconDataUri(instancePath) {
 
 export async function saveCustomIconFile(instancePath, customIconData) {
   if (!customIconData || typeof customIconData !== 'string') return;
-  // Match data URI: data:image/png;base64,...
   const match = customIconData.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
   if (!match) return;
 
@@ -60,100 +69,98 @@ export async function saveCustomIconFile(instancePath, customIconData) {
   else if (rawExt.includes('webp')) ext = 'webp';
   else if (rawExt.includes('svg')) ext = 'svg';
 
-  const buffer = Buffer.from(match[2], 'base64');
-
-  // Remove any previous custom icon files in instance
   const possibleIcons = ['icon.png', 'icon.jpg', 'icon.jpeg', 'icon.webp', 'icon.svg'];
-  for (const name of possibleIcons) {
-    const existing = path.join(instancePath, name);
-    if (fs.existsSync(existing)) {
-      try { await fs.promises.unlink(existing); } catch {}
-    }
-  }
+  await Promise.all(
+    possibleIcons.map(name => fs.promises.unlink(path.join(instancePath, name)).catch(() => {}))
+  );
 
-  const dest = path.join(instancePath, `icon.${ext}`);
-  await fs.promises.writeFile(dest, buffer);
+  const iconFilePath = path.join(instancePath, `icon.${ext}`);
+  await fs.promises.writeFile(iconFilePath, Buffer.from(match[2], 'base64'));
 }
 
-export async function readAllInstances() {
-  await ensureInstancesDir();
-  const baseDir = getInstancesDir();
-  const instances = [];
-
+async function countEntriesSafe(dirPath, filterFn = null) {
   try {
-    const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const id = entry.name;
-      const instancePath = path.join(baseDir, id);
-      const configPath = path.join(instancePath, 'instance.json');
-
-      let config = null;
-      try {
-        const raw = await fs.promises.readFile(configPath, 'utf8');
-        config = JSON.parse(raw);
-      } catch {
-        // If no instance.json, construct a fallback
-        config = {
-          id,
-          name: id,
-          version: '1.21.1',
-          loader: 'vanilla',
-          icon: DEFAULT_INSTANCE_ICON,
-          ram: 4,
-          created: Date.now(),
-        };
-      }
-
-      // Count mods in this instance
-      let modsCount = 0;
-      try {
-        const modsDir = path.join(instancePath, 'mods');
-        const modFiles = await fs.promises.readdir(modsDir);
-        modsCount = modFiles.filter(f => f.endsWith('.jar') || f.endsWith('.olpkg')).length;
-      } catch {}
-
-      const ver = config.version || '1.21.1';
-      const inferred = detectLoaderFromVersion(ver);
-      const finalLoader = config.loader && config.loader !== 'vanilla' ? config.loader : inferred;
-
-      // Check if instance has a custom stored icon file
-      let iconValue = config.icon || DEFAULT_INSTANCE_ICON;
-      if (iconValue === 'custom' || iconValue.startsWith('data:image/')) {
-        const customDataUri = await getCustomIconDataUri(instancePath);
-        if (customDataUri) {
-          iconValue = customDataUri;
-        }
-      }
-
-      instances.push({
-        id,
-        path: instancePath,
-        name: config.name || id,
-        version: ver,
-        loader: finalLoader, // vanilla | fabric | forge | neoforge | quilt
-        icon: iconValue,
-        ram: typeof config.ram === 'number' ? config.ram : 4,
-        jvmArguments: config.jvmArguments || '',
-        javaPath: config.javaPath || '',
-        created: config.created || Date.now(),
-        lastPlayed: config.lastPlayed || null,
-        modsCount,
-      });
-    }
-  } catch (err) {
-    console.error('Error reading instances:', err);
+    const items = await fs.promises.readdir(dirPath);
+    return items.filter(name => !name.startsWith('.') && (!filterFn || filterFn(name))).length;
+  } catch {
+    return 0;
   }
+}
 
-  // Sort by lastPlayed desc, then created desc
-  instances.sort((a, b) => (b.lastPlayed || b.created || 0) - (a.lastPlayed || a.created || 0));
+async function readInstanceEntry(instanceDirName, instancesDir) {
+  const instancePath = path.join(instancesDir, instanceDirName);
+  const configPath = path.join(instancePath, 'instance.json');
+  const config = await readJsonSafe(configPath);
+  if (!config || typeof config !== 'object') return null;
+
+  const [modsCount, savesCount, resolvedCustomIcon] = await Promise.all([
+    countEntriesSafe(path.join(instancePath, 'mods'), isModFileName),
+    countEntriesSafe(path.join(instancePath, 'saves')),
+    config.icon === 'custom' ? getCustomIconDataUri(instancePath) : Promise.resolve(null),
+  ]);
+
+  return {
+    id: config.id || instanceDirName,
+    name: config.name || instanceDirName,
+    version: config.version || '1.21.1',
+    loader: config.loader || detectLoaderFromVersion(config.version),
+    icon: resolvedCustomIcon || config.icon || DEFAULT_INSTANCE_ICON,
+    ram: Number(config.ram) || 4,
+    jvmArguments: config.jvmArguments || '',
+    javaPath: config.javaPath || '',
+    created: config.created || Date.now(),
+    lastPlayed: config.lastPlayed || null,
+    playTimeMs: Number(config.playTimeMs) || 0,
+    path: instancePath,
+    modsCount,
+    savesCount,
+  };
+}
+
+export async function listInstances() {
+  const dir = await ensureInstancesDir();
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const dirNames = entries.filter(e => e.isDirectory()).map(e => e.name);
+
+  const parsed = await runWithConcurrency(dirNames, 6, name => readInstanceEntry(name, dir));
+  const instances = parsed.filter(Boolean);
+
+  instances.sort((a, b) => {
+    const aTime = a.lastPlayed || a.created || 0;
+    const bTime = b.lastPlayed || b.created || 0;
+    return bTime - aTime;
+  });
+
   return instances;
+}
+
+export const readAllInstances = listInstances;
+
+export async function getInstance(id) {
+  const instancePath = getInstanceDir(id);
+  if (!instancePath) return null;
+  const config = await readJsonSafe(path.join(instancePath, 'instance.json'));
+  if (!config) return null;
+
+  const [modsCount, savesCount, resolvedCustomIcon] = await Promise.all([
+    countEntriesSafe(path.join(instancePath, 'mods'), isModFileName),
+    countEntriesSafe(path.join(instancePath, 'saves')),
+    config.icon === 'custom' ? getCustomIconDataUri(instancePath) : Promise.resolve(null),
+  ]);
+
+  return {
+    ...config,
+    icon: resolvedCustomIcon || config.icon || DEFAULT_INSTANCE_ICON,
+    path: instancePath,
+    modsCount,
+    savesCount,
+  };
 }
 
 export async function createInstance({
   name,
   version,
-  loader = 'vanilla',
+  loader,
   icon = DEFAULT_INSTANCE_ICON,
   customIconData = null,
   ram = 4,
@@ -171,15 +178,16 @@ export async function createInstance({
   }
 
   const instancePath = getInstanceDir(id);
-  await fs.promises.mkdir(instancePath, { recursive: true });
-  await fs.promises.mkdir(path.join(instancePath, 'mods'), { recursive: true });
-  await fs.promises.mkdir(path.join(instancePath, 'shaderpacks'), { recursive: true });
-  await fs.promises.mkdir(path.join(instancePath, 'resourcepacks'), { recursive: true });
-  await fs.promises.mkdir(path.join(instancePath, 'saves'), { recursive: true });
+  await Promise.all([
+    fs.promises.mkdir(path.join(instancePath, 'mods'), { recursive: true }),
+    fs.promises.mkdir(path.join(instancePath, 'shaderpacks'), { recursive: true }),
+    fs.promises.mkdir(path.join(instancePath, 'resourcepacks'), { recursive: true }),
+    fs.promises.mkdir(path.join(instancePath, 'saves'), { recursive: true }),
+  ]);
 
   const rawVer = String(version || '1.21.1').trim();
   const detected = detectLoaderFromVersion(rawVer);
-  const finalLoader = detected !== 'vanilla' ? detected : (String(loader || 'vanilla').toLowerCase().trim());
+  const finalLoader = detected !== 'vanilla' ? detected : String(loader || 'vanilla').toLowerCase().trim();
 
   let finalIcon = icon || DEFAULT_INSTANCE_ICON;
   if (customIconData) {
@@ -192,7 +200,7 @@ export async function createInstance({
 
   const config = {
     id,
-    name: name.trim(),
+    name: String(name || id).trim(),
     version: rawVer,
     loader: finalLoader,
     icon: finalIcon,
@@ -201,32 +209,33 @@ export async function createInstance({
     javaPath: String(javaPath || '').trim(),
     created: Date.now(),
     lastPlayed: null,
+    playTimeMs: 0,
   };
 
-  await fs.promises.writeFile(
-    path.join(instancePath, 'instance.json'),
-    JSON.stringify(config, null, 2),
-    'utf8'
-  );
+  await writeJsonAtomic(path.join(instancePath, 'instance.json'), config);
 
   const resolvedIcon = finalIcon === 'custom'
     ? ((await getCustomIconDataUri(instancePath)) || customIconData || finalIcon)
     : finalIcon;
 
-  return { ok: true, instance: { ...config, icon: resolvedIcon, path: instancePath, modsCount: 0 } };
+  return {
+    ok: true,
+    instance: { ...config, icon: resolvedIcon, path: instancePath, modsCount: 0, savesCount: 0 },
+  };
 }
 
 export async function updateInstance(id, updates) {
   const instancePath = getInstanceDir(id);
+  if (!instancePath) {
+    return { error: 'InvalidId', message: 'Invalid instance ID' };
+  }
   const configPath = path.join(instancePath, 'instance.json');
-  if (!fs.existsSync(configPath)) {
+  const config = await readJsonSafe(configPath);
+  if (!config) {
     return { error: 'NotFound', message: `Instance ${id} not found` };
   }
 
   try {
-    const raw = await fs.promises.readFile(configPath, 'utf8');
-    const config = JSON.parse(raw);
-
     const { customIconData, ...restUpdates } = updates || {};
     let newIcon = restUpdates.icon !== undefined ? restUpdates.icon : config.icon;
 
@@ -237,38 +246,91 @@ export async function updateInstance(id, updates) {
       await saveCustomIconFile(instancePath, newIcon);
       newIcon = 'custom';
     } else if (newIcon && newIcon !== 'custom' && config.icon === 'custom') {
-      // If user switched back to standard Minecraft icon, delete custom icon file
       const possibleIcons = ['icon.png', 'icon.jpg', 'icon.jpeg', 'icon.webp', 'icon.svg'];
-      for (const name of possibleIcons) {
-        const existing = path.join(instancePath, name);
-        if (fs.existsSync(existing)) {
-          try { await fs.promises.unlink(existing); } catch {}
-        }
-      }
+      await Promise.all(
+        possibleIcons.map(name => fs.promises.unlink(path.join(instancePath, name)).catch(() => {}))
+      );
     }
 
     const updated = {
       ...config,
       ...restUpdates,
       icon: newIcon,
-      id, // do not change id
+      id: config.id || id,
     };
 
-    await fs.promises.writeFile(configPath, JSON.stringify(updated, null, 2), 'utf8');
+    await writeJsonAtomic(configPath, updated);
 
-    const resolvedIcon = updated.icon === 'custom'
-      ? ((await getCustomIconDataUri(instancePath)) || customIconData || updated.icon)
-      : updated.icon;
+    const [modsCount, savesCount, resolvedCustomIcon] = await Promise.all([
+      countEntriesSafe(path.join(instancePath, 'mods'), isModFileName),
+      countEntriesSafe(path.join(instancePath, 'saves')),
+      updated.icon === 'custom' ? getCustomIconDataUri(instancePath) : Promise.resolve(null),
+    ]);
 
-    return { ok: true, instance: { ...updated, icon: resolvedIcon } };
+    return {
+      ok: true,
+      instance: {
+        ...updated,
+        icon: resolvedCustomIcon || customIconData || updated.icon,
+        path: instancePath,
+        modsCount,
+        savesCount,
+      },
+    };
   } catch (err) {
     return { error: 'UpdateFailed', message: err.message };
   }
 }
 
+export async function touchInstanceLastPlayed(id) {
+  if (!id) return null;
+  return updateInstance(id, { lastPlayed: Date.now() });
+}
+
+export async function duplicateInstance(sourceId, newName = null) {
+  const sourcePath = getInstanceDir(sourceId);
+  if (!sourcePath) return { error: 'InvalidId', message: 'Invalid source instance ID' };
+  const sourceConfig = await readJsonSafe(path.join(sourcePath, 'instance.json'));
+  if (!sourceConfig) return { error: 'NotFound', message: `Instance ${sourceId} not found` };
+
+  const targetName = (newName && String(newName).trim()) || `${sourceConfig.name || sourceId} Copy`;
+  await ensureInstancesDir();
+
+  const baseId = sanitizeInstanceId(targetName);
+  let targetId = baseId;
+  let counter = 1;
+  while (fs.existsSync(getInstanceDir(targetId))) {
+    targetId = `${baseId}-${counter}`;
+    counter++;
+  }
+
+  const targetPath = getInstanceDir(targetId);
+  await fs.promises.mkdir(targetPath, { recursive: true });
+
+  const skipEntries = new Set(['logs', 'crash-reports', 'natives', 'usercache.json', 'usernamecache.json']);
+  const entries = await fs.promises.readdir(sourcePath);
+  for (const entry of entries) {
+    if (skipEntries.has(entry) || entry === 'instance.json') continue;
+    await copyRecursive(path.join(sourcePath, entry), path.join(targetPath, entry));
+  }
+
+  const targetConfig = {
+    ...sourceConfig,
+    id: targetId,
+    name: targetName,
+    created: Date.now(),
+    lastPlayed: null,
+    playTimeMs: 0,
+  };
+  await writeJsonAtomic(path.join(targetPath, 'instance.json'), targetConfig);
+
+  const created = await getInstance(targetId);
+  return { ok: true, instance: created };
+}
+
 export async function deleteInstance(id) {
   const instancePath = getInstanceDir(id);
-  if (!fs.existsSync(instancePath)) {
+  if (!instancePath || !fs.existsSync(instancePath)) {
     return { error: 'NotFound', message: `Instance ${id} not found` };
   }
 
@@ -280,51 +342,26 @@ export async function deleteInstance(id) {
   }
 }
 
-/**
- * Scans the root .minecraft directory to detect existing mods, configs, saves, shaders, etc.
- */
 export async function scanBaseDirectory() {
   const baseDir = getMinecraftRoot();
-  const summary = {
-    modsCount: 0,
-    shaderpacksCount: 0,
-    resourcepacksCount: 0,
-    savesCount: 0,
-    hasConfig: false,
-    hasOptions: false,
+
+  const [modsCount, shaderpacksCount, resourcepacksCount, savesCount] = await Promise.all([
+    countEntriesSafe(path.join(baseDir, 'mods')),
+    countEntriesSafe(path.join(baseDir, 'shaderpacks')),
+    countEntriesSafe(path.join(baseDir, 'resourcepacks')),
+    countEntriesSafe(path.join(baseDir, 'saves')),
+  ]);
+
+  return {
+    modsCount,
+    shaderpacksCount,
+    resourcepacksCount,
+    savesCount,
+    hasConfig: fs.existsSync(path.join(baseDir, 'config')),
+    hasOptions: fs.existsSync(path.join(baseDir, 'options.txt')),
   };
-
-  const countDir = async (sub) => {
-    try {
-      const p = path.join(baseDir, sub);
-      const items = await fs.promises.readdir(p);
-      return items.filter(i => !i.startsWith('.')).length;
-    } catch {
-      return 0;
-    }
-  };
-
-  summary.modsCount = await countDir('mods');
-  summary.shaderpacksCount = await countDir('shaderpacks');
-  summary.resourcepacksCount = await countDir('resourcepacks');
-  summary.savesCount = await countDir('saves');
-
-  try {
-    const configPath = path.join(baseDir, 'config');
-    summary.hasConfig = fs.existsSync(configPath);
-  } catch {}
-
-  try {
-    const optionsPath = path.join(baseDir, 'options.txt');
-    summary.hasOptions = fs.existsSync(optionsPath);
-  } catch {}
-
-  return summary;
 }
 
-/**
- * Recursively copies a directory or file
- */
 async function copyRecursive(src, dest) {
   const stat = await fs.promises.stat(src);
   if (stat.isDirectory()) {
@@ -339,9 +376,6 @@ async function copyRecursive(src, dest) {
   }
 }
 
-/**
- * Moves a directory or file (renames with fallback copy+remove for cross-device)
- */
 async function moveRecursive(src, dest) {
   try {
     await fs.promises.mkdir(path.dirname(dest), { recursive: true });
@@ -352,86 +386,56 @@ async function moveRecursive(src, dest) {
   }
 }
 
-/**
- * Migrates (copies or moves) data from root .minecraft into a new instance
- * @param {Object} options
- * @param {string} options.name
- * @param {string} options.version
- * @param {string} options.loader
- * @param {string} options.icon
- * @param {number} options.ram
- * @param {boolean} options.move - true to convert (move files), false to copy
- * @param {Array<string>} options.include - e.g. ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'options']
- */
 export async function migrateBaseToInstance({
   name = 'Migrated Instance',
   version = '1.21.1',
   loader = 'vanilla',
   icon = DEFAULT_INSTANCE_ICON,
   ram = 4,
-  move = false, // false = copy, true = convert (move)
+  move = false,
   include = ['mods', 'config', 'shaderpacks', 'resourcepacks', 'saves', 'options'],
 }) {
   const baseDir = getMinecraftRoot();
-  const createdRes = await createInstance({
-    name,
-    version,
-    loader,
-    icon,
-    ram,
-  });
-
-  if (!createdRes.ok) {
-    return createdRes;
-  }
+  const createdRes = await createInstance({ name, version, loader, icon, ram });
+  if (!createdRes.ok) return createdRes;
 
   const instance = createdRes.instance;
   const instancePath = instance.path;
 
   const foldersToMigrate = [
-    { key: 'mods', name: 'mods', isDir: true },
-    { key: 'config', name: 'config', isDir: true },
-    { key: 'defaultconfigs', name: 'defaultconfigs', isDir: true },
-    { key: 'shaderpacks', name: 'shaderpacks', isDir: true },
-    { key: 'resourcepacks', name: 'resourcepacks', isDir: true },
-    { key: 'saves', name: 'saves', isDir: true },
-    { key: 'options', name: 'options.txt', isDir: false },
-    { key: 'options', name: 'optionsshaders.txt', isDir: false },
+    { key: 'mods', name: 'mods' },
+    { key: 'config', name: 'config' },
+    { key: 'defaultconfigs', name: 'defaultconfigs' },
+    { key: 'shaderpacks', name: 'shaderpacks' },
+    { key: 'resourcepacks', name: 'resourcepacks' },
+    { key: 'saves', name: 'saves' },
+    { key: 'options', name: 'options.txt' },
+    { key: 'options', name: 'optionsshaders.txt' },
   ];
 
   for (const item of foldersToMigrate) {
     if (!include.includes(item.key)) continue;
     const srcPath = path.join(baseDir, item.name);
     const destPath = path.join(instancePath, item.name);
-
-    if (fs.existsSync(srcPath)) {
-      try {
-        if (move) {
-          await moveRecursive(srcPath, destPath);
-        } else {
-          await copyRecursive(srcPath, destPath);
-        }
-      } catch (err) {
-        console.error(`Failed to migrate ${item.name}:`, err);
-      }
+    if (!fs.existsSync(srcPath)) continue;
+    try {
+      if (move) await moveRecursive(srcPath, destPath);
+      else await copyRecursive(srcPath, destPath);
+    } catch (err) {
+      console.error(`Failed to migrate ${item.name}:`, err);
     }
   }
 
-  // Recount mods
-  let modsCount = 0;
-  try {
-    const modFiles = await fs.promises.readdir(path.join(instancePath, 'mods'));
-    modsCount = modFiles.filter(f => f.endsWith('.jar') || f.endsWith('.olpkg')).length;
-  } catch {}
+  const [modsCount, savesCount] = await Promise.all([
+    countEntriesSafe(path.join(instancePath, 'mods'), isModFileName),
+    countEntriesSafe(path.join(instancePath, 'saves')),
+  ]);
 
-  await updateInstance(instance.id, { modsCount });
+  await updateInstance(instance.id, { modsCount, savesCount });
 
   return {
     ok: true,
-    instance: {
-      ...instance,
-      modsCount,
-    },
+    instance: { ...instance, modsCount, savesCount },
     mode: move ? 'converted' : 'copied',
   };
 }

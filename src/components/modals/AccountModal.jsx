@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useI18n } from '../../context/I18nContext';
 import { ICONS } from '../../constants/icons';
-import { Icon, MicrosoftLogo } from '../common/CommonComponents';
+import { Icon, MicrosoftLogo, SkinHeadAvatar } from '../common/CommonComponents';
 
 export function AccountModal({
   currentAccount = null,
+  avatarDataUri = '',
+  avatarFallbackUrl = '',
+  onOpenSkins,
   onClose,
   onSaveOfflineName,
   onLoginMicrosoft,
@@ -51,9 +54,16 @@ export function AccountModal({
             background: 'rgba(255, 255, 255, 0.08)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            overflow: 'hidden',
+            flexShrink: 0,
           }}>
-            {isMicrosoft ? <MicrosoftLogo size={20} /> : <Icon d={ICONS.star} size={20} />}
+            <SkinHeadAvatar
+              skinDataUri={avatarDataUri}
+              fallbackUrl={avatarFallbackUrl}
+              alt={currentAccount?.name || offlineName || 'Player'}
+              size={40}
+            />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-main)' }}>
@@ -65,6 +75,19 @@ export function AccountModal({
                 : t('accountModal.offlineMode')}
             </div>
           </div>
+          {onOpenSkins && (
+            <button
+              type="button"
+              className="btn-secondary btn-compact"
+              onClick={() => {
+                onClose();
+                onOpenSkins();
+              }}
+            >
+              <Icon d={ICONS.palette} size={13} />
+              <span>{t('skins.customize')}</span>
+            </button>
+          )}
         </div>
 
         {/* Microsoft Login or Logout Action */}

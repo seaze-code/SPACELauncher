@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 
 /**
- * OpenLauncher - Automated Real Gameplay Benchmark Suite
+ * SpaceLauncher - Automated Real Gameplay Benchmark Suite
  * Interactively measures RAM & CPU performance with:
  * 1) launchBehavior = 'keepOpen' (Launcher visible + Minecraft running)
  * 2) launchBehavior = 'hide' (Launcher hidden/suspended in background + Minecraft running)
@@ -37,7 +37,7 @@ function clearLine() {
   process.stdout.write('\r\x1b[K');
 }
 
-console.log(`\n  ${CYAN}◆${NC} ${BOLD}OpenLauncher Interactive Gameplay Benchmark Suite${NC}`);
+console.log(`\n  ${CYAN}◆${NC} ${BOLD}SpaceLauncher Interactive Gameplay Benchmark Suite${NC}`);
 console.log(`  ${DIM}─────────────────────────────────────────────────────────────────${NC}\n`);
 
 // Locate candidate binaries
@@ -46,21 +46,21 @@ function findAppBinary() {
 
   if (isMac) {
     candidates.push(
-      path.join(process.cwd(), 'release/mac-arm64/OpenLauncher.app/Contents/MacOS/OpenLauncher'),
-      path.join(process.cwd(), 'release/mac/OpenLauncher.app/Contents/MacOS/OpenLauncher'),
-      path.join(process.cwd(), 'release/mac-universal/OpenLauncher.app/Contents/MacOS/OpenLauncher'),
-      '/Applications/OpenLauncher.app/Contents/MacOS/OpenLauncher'
+      path.join(process.cwd(), 'release/mac-arm64/SpaceLauncher.app/Contents/MacOS/SpaceLauncher'),
+      path.join(process.cwd(), 'release/mac/SpaceLauncher.app/Contents/MacOS/SpaceLauncher'),
+      path.join(process.cwd(), 'release/mac-universal/SpaceLauncher.app/Contents/MacOS/SpaceLauncher'),
+      '/Applications/SpaceLauncher.app/Contents/MacOS/SpaceLauncher'
     );
   } else if (isWin) {
     const localAppData = process.env.LOCALAPPDATA || '';
     candidates.push(
-      path.join(process.cwd(), 'release', 'win-unpacked', 'OpenLauncher.exe'),
-      path.join(localAppData, 'Programs', 'OpenLauncher', 'OpenLauncher.exe')
+      path.join(process.cwd(), 'release', 'win-unpacked', 'SpaceLauncher.exe'),
+      path.join(localAppData, 'Programs', 'SpaceLauncher', 'SpaceLauncher.exe')
     );
   } else if (isLinux) {
     candidates.push(
-      path.join(process.cwd(), 'release', 'linux-unpacked', 'openlauncher'),
-      '/usr/bin/openlauncher'
+      path.join(process.cwd(), 'release', 'linux-unpacked', 'SpaceLauncher'),
+      '/usr/bin/SpaceLauncher'
     );
   }
 
@@ -70,7 +70,7 @@ function findAppBinary() {
   return null;
 }
 
-// Find all running OpenLauncher PIDs
+// Find all running SpaceLauncher PIDs
 function getRunningProcesses() {
   try {
     let output = '';
@@ -78,7 +78,7 @@ function getRunningProcesses() {
     const parentPid = String(process.ppid);
 
     if (isWin) {
-      output = execSync('wmic process where "name like \'%OpenLauncher.exe%\' or name like \'%electron.exe%\'" get ProcessId,WorkingSetSize,CommandLine /format:csv', { encoding: 'utf8' });
+      output = execSync('wmic process where "name like \'%SpaceLauncher.exe%\' or name like \'%electron.exe%\'" get ProcessId,WorkingSetSize,CommandLine /format:csv', { encoding: 'utf8' });
       const lines = output.trim().split('\r\n').slice(1);
       return lines.map(line => {
         const parts = line.split(',');
@@ -86,10 +86,10 @@ function getRunningProcesses() {
         const memBytes = parseInt(parts[parts.length - 1]?.trim(), 10) || 0;
         const cmd = parts.slice(1, -2).join(',');
         if (cmd.includes('test-performance') || pid === currentPid || pid === parentPid) return null;
-        return { pid, rssMb: (memBytes / (1024 * 1024)).toFixed(1), cpu: 0, type: 'OpenLauncher' };
+        return { pid, rssMb: (memBytes / (1024 * 1024)).toFixed(1), cpu: 0, type: 'SpaceLauncher' };
       }).filter(Boolean);
     } else {
-      output = execSync(`ps aux | grep -iE "OpenLauncher\\.app|electron/dist/Electron|OpenLauncher Helper|electron \\." | grep -v grep | awk '{print $2, $6, $3, $11, $12, $13, $14}'`, { encoding: 'utf8' }).trim();
+      output = execSync(`ps aux | grep -iE "SpaceLauncher\\.app|electron/dist/Electron|SpaceLauncher Helper|electron \\." | grep -v grep | awk '{print $2, $6, $3, $11, $12, $13, $14}'`, { encoding: 'utf8' }).trim();
       if (!output) return [];
       return output.split('\n').map(line => {
         const parts = line.trim().split(/\s+/);
@@ -162,7 +162,7 @@ async function ensureLauncherRunning() {
     const binaryPath = findAppBinary();
     if (binaryPath) {
       console.log(`  ${BLUE}ℹ${NC} Detected binary at: ${DIM}${binaryPath}${NC}`);
-      console.log(`  ${YELLOW}▶${NC} Launching OpenLauncher...`);
+      console.log(`  ${YELLOW}▶${NC} Launching SpaceLauncher...`);
       const appProcess = spawn(binaryPath, [], { stdio: 'ignore', detached: true });
       appProcess.unref();
       await sleep(3500);
@@ -171,8 +171,8 @@ async function ensureLauncherRunning() {
   }
 
   if (running.length === 0) {
-    console.log(`  ${YELLOW}⚠${NC} OpenLauncher not detected automatically.`);
-    console.log(`  ${BOLD}Please open OpenLauncher.${NC} Waiting for process...`);
+    console.log(`  ${YELLOW}⚠${NC} SpaceLauncher not detected automatically.`);
+    console.log(`  ${BOLD}Please open SpaceLauncher.${NC} Waiting for process...`);
     let attempts = 0;
     while (running.length === 0 && attempts < 30) {
       await sleep(1000);
@@ -184,7 +184,7 @@ async function ensureLauncherRunning() {
   }
 
   if (running.length === 0) {
-    console.log(`\n  ${RED}✗ Error: OpenLauncher is not running. Exiting.${NC}\n`);
+    console.log(`\n  ${RED}✗ Error: SpaceLauncher is not running. Exiting.${NC}\n`);
     process.exit(1);
   }
 
@@ -193,7 +193,7 @@ async function ensureLauncherRunning() {
 
 async function main() {
   const initialProcs = await ensureLauncherRunning();
-  console.log(`  ${GREEN}✓${NC} OpenLauncher is ready with ${BOLD}${initialProcs.length}${NC} active processes.\n`);
+  console.log(`  ${GREEN}✓${NC} SpaceLauncher is ready with ${BOLD}${initialProcs.length}${NC} active processes.\n`);
 
   // Ensure any previous Minecraft is closed
   killMinecraftProcesses();
@@ -332,7 +332,7 @@ async function main() {
   console.log(`\n  ${YELLOW}🛑 Automatically stopping Minecraft process to verify auto-relaunch...${NC}`);
   killMinecraftProcesses();
 
-  process.stdout.write(`  ${CYAN}⏳ Waiting for OpenLauncher supervisor to auto-relaunch the app...${NC}`);
+  process.stdout.write(`  ${CYAN}⏳ Waiting for SpaceLauncher supervisor to auto-relaunch the app...${NC}`);
   let relaunchAttempts = 0;
   let relaunchedProcs = [];
   while (relaunchAttempts < 20) {
@@ -344,9 +344,9 @@ async function main() {
   clearLine();
 
   if (relaunchedProcs.length > 0) {
-    console.log(`  ${GREEN}✓ OpenLauncher auto-relaunched successfully after Minecraft closed! (${relaunchedProcs.length} processes active)${NC}\n`);
+    console.log(`  ${GREEN}✓ SpaceLauncher auto-relaunched successfully after Minecraft closed! (${relaunchedProcs.length} processes active)${NC}\n`);
   } else {
-    console.log(`  ${YELLOW}ℹ OpenLauncher relaunch check completed.${NC}\n`);
+    console.log(`  ${YELLOW}ℹ SpaceLauncher relaunch check completed.${NC}\n`);
   }
 
   // ============================================================================

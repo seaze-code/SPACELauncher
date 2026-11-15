@@ -1,23 +1,78 @@
 const MODRINTH_API_BASE = 'https://api.modrinth.com/v2';
-const USER_AGENT = 'CesarGarza55/OpenLauncher/1.0.2 (support@codevbox.com)';
+const USER_AGENT = 'SpaceLauncher/1.0.0 (desktop)';
+
+const modrinthGetCache = new Map();
+const CACHE_TTL_MS = 120000;
+const MAX_CACHE_ITEMS = 120;
+
+function getCached(key) {
+  const hit = modrinthGetCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    modrinthGetCache.delete(key);
+    return null;
+  }
+  return hit.data;
+}
+
+function setCached(key, data) {
+  if (modrinthGetCache.size >= MAX_CACHE_ITEMS) {
+    const oldest = modrinthGetCache.keys().next().value;
+    if (oldest !== undefined) modrinthGetCache.delete(oldest);
+  }
+  modrinthGetCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
 
 async function fetchModrinth(endpoint, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `${MODRINTH_API_BASE}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(`Modrinth API error ${res.status}: ${errorText || res.statusText}`);
+  const isGet = !options.method || String(options.method).toUpperCase() === 'GET';
+  if (isGet && !options.noCache) {
+    const cached = getCached(url);
+    if (cached) return cached;
   }
 
-  return res.json();
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(url, {
+        ...options,
+        signal: options.signal || controller.signal,
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Accept': 'application/json',
+          ...(options.headers || {}),
+        },
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (isGet && !options.noCache) setCached(url, json);
+        return json;
+      }
+
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        const retryAfter = Number(res.headers?.get?.('retry-after') || 0);
+        const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 8000) : 500 * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      const errorText = await res.text().catch(() => '');
+      throw new Error(`Modrinth API error ${res.status}: ${errorText || res.statusText}`);
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2 && err?.name !== 'AbortError') {
+        await new Promise(r => setTimeout(r, 450 * Math.pow(2, attempt)));
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError || new Error('Modrinth request failed');
 }
 
 export function cleanMinecraftVersion(version) {
@@ -56,10 +111,12 @@ export async function searchModrinthProjects({
       ? 'resourcepack'
       : projectType === 'datapack'
         ? 'datapack'
-        : 'mod';
+        : projectType === 'modpack'
+          ? 'modpack'
+          : 'mod';
   const facets = [[`project_type:${typeStr}`]];
 
-  if (typeStr === 'mod') {
+  if (typeStr === 'mod' || typeStr === 'modpack') {
     if (loader && loader.toLowerCase() !== 'all' && loader.toLowerCase() !== 'vanilla') {
       facets.push([`categories:${loader.toLowerCase()}`]);
     }

@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -e
 
 # ==============================================================================
-# OpenLauncher - Interactive Linux 
+# SpaceLauncher - Interactive Linux 
 # Build packages for Debian (.deb), AppImage, tar.gz, and Arch Linux
 # ==============================================================================
 
@@ -26,7 +26,7 @@ NC='\033[0m'
 print_banner() {
     clear
     echo ""
-    echo -e "  ${BRIGHT_CYAN}◆${NC} ${BOLD}OpenLauncher${NC} ${DIM}•${NC} ${BRIGHT_BLUE}Linux${NC}"
+    echo -e "  ${BRIGHT_CYAN}◆${NC} ${BOLD}SpaceLauncher${NC} ${DIM}•${NC} ${BRIGHT_BLUE}Linux${NC}"
     echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
     echo ""
 }

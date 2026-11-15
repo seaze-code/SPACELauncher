@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 import { getMinecraftRoot, getMinecraftRoots } from './paths.js';
 import { findJavaCommand, resolveJavaCommand } from './javaDetector.js';
 import { getMainWindow } from './windowManager.js';
+import { downloadFileAtomic, fetchWithRetry, runWithConcurrency, writeJsonAtomic } from './utils.js';
 
 const require = createRequire(import.meta.url);
 const AdmZip = require('adm-zip');
@@ -65,34 +66,26 @@ export async function downloadToFile(url, outPath, installId, fileLabel = null, 
   const displayName = fileLabel || path.basename(outPath);
   try {
     onLog?.('info', `Downloading ${displayName}...`);
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-    await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
-    const total = Number(res.headers.get('content-length')) || null;
-    let loaded = 0;
-    let lastLoggedPercent = 0;
-    const dest = fs.createWriteStream(outPath);
-    const readable = Readable.fromWeb(res.body);
     let lastProgressTime = 0;
-    readable.on('data', (chunk) => {
-      loaded += chunk.length;
-      const now = Date.now();
-      if (now - lastProgressTime > 100 || (total && loaded >= total)) {
-        lastProgressTime = now;
-        const percent = total ? Math.round((loaded / total) * 100) : null;
-        onProgress?.({ installId, file: displayName, loaded, total, percent });
-      }
-      const percent = total ? Math.round((loaded / total) * 100) : null;
-      if (percent !== null && percent >= lastLoggedPercent + 25) {
-        lastLoggedPercent = Math.floor(percent / 25) * 25;
-        onLog?.('info', `[${displayName}] ${percent}% downloaded`);
-      }
-    });
-    await new Promise((resolve, reject) => {
-      readable.pipe(dest);
-      dest.on('finish', resolve);
-      dest.on('error', reject);
-      readable.on('error', reject);
+    let lastLoggedPercent = 0;
+    await downloadFileAtomic(url, outPath, {
+      signal,
+      timeoutMs: 120000,
+      retries: 2,
+      onProgress: (loaded, total) => {
+        const now = Date.now();
+        const safeTotal = total || null;
+        if (now - lastProgressTime > 100 || (safeTotal && loaded >= safeTotal)) {
+          lastProgressTime = now;
+          const percent = safeTotal ? Math.round((loaded / safeTotal) * 100) : null;
+          onProgress?.({ installId, file: displayName, loaded, total: safeTotal, percent });
+        }
+        const percent = safeTotal ? Math.round((loaded / safeTotal) * 100) : null;
+        if (percent !== null && percent >= lastLoggedPercent + 25) {
+          lastLoggedPercent = Math.floor(percent / 25) * 25;
+          onLog?.('info', `[${displayName}] ${percent}% downloaded`);
+        }
+      },
     });
     onLog?.('info', `Finished downloading ${displayName}.`);
     return { ok: true, path: outPath };
@@ -105,15 +98,22 @@ export async function downloadToFile(url, outPath, installId, fileLabel = null, 
 export async function saveResponseBodyToFile(response, outPath) {
   if (!response?.body) throw new Error('Empty response body');
   await fs.promises.mkdir(path.dirname(outPath), { recursive: true });
+  const tmpPath = `${outPath}.${process.pid}.part`;
   const readable = Readable.fromWeb(response.body);
-  const writable = fs.createWriteStream(outPath);
-  await new Promise((resolve, reject) => {
-    readable.pipe(writable);
-    writable.on('finish', resolve);
-    writable.on('error', reject);
-    readable.on('error', reject);
-  });
-  return outPath;
+  const writable = fs.createWriteStream(tmpPath);
+  try {
+    await new Promise((resolve, reject) => {
+      readable.pipe(writable);
+      writable.on('finish', resolve);
+      writable.on('error', reject);
+      readable.on('error', reject);
+    });
+    await fs.promises.rename(tmpPath, outPath);
+    return outPath;
+  } catch (err) {
+    await fs.promises.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 }
 
 export async function ensureJarFile(url, outPath, { onLog = null } = {}) {
@@ -121,9 +121,7 @@ export async function ensureJarFile(url, outPath, { onLog = null } = {}) {
   try { await fs.promises.unlink(outPath); } catch { }
   const fileName = path.basename(outPath);
   onLog?.('info', `Downloading ${fileName}...`);
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to download ${url}: ${response.status}`);
-  await saveResponseBodyToFile(response, outPath);
+  await downloadFileAtomic(url, outPath, { timeoutMs: 90000, retries: 2 });
   return outPath;
 }
 
@@ -315,18 +313,18 @@ export async function installForgeLibraryEntry(library, minecraftRoot, installId
 }
 
 export async function installForgeLibraries(libraries, minecraftRoot, installId, { onLog = null } = {}) {
-  for (const library of libraries || []) {
+  await runWithConcurrency(libraries || [], 8, async (library) => {
     try {
       await installForgeLibraryEntry(library, minecraftRoot, installId, { onLog });
     } catch (error) {
       onLog?.('stderr', `Forge library download failed: ${error?.message || error}`);
     }
-  }
+  });
 }
 
 export function runCommand(command, args, { cwd, onStdout, onStderr } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd });
+    const child = spawn(command, args, { cwd, windowsHide: true });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (chunk) => { const text = String(chunk); stdout += text; if (onStdout) onStdout(text); });
@@ -547,8 +545,8 @@ export async function ensureLauncherProfilesExists(minecraftRoot) {
   if (!fs.existsSync(profilePath)) {
     const dummyProfiles = {
       profiles: {
-        openlauncher: {
-          name: 'OpenLauncher',
+        spacelauncher: {
+          name: 'SpaceLauncher',
           type: 'custom',
           created: new Date().toISOString(),
           lastUsed: new Date().toISOString(),
@@ -559,21 +557,20 @@ export async function ensureLauncherProfilesExists(minecraftRoot) {
       version: 3,
     };
     try {
-      await fs.promises.mkdir(minecraftRoot, { recursive: true });
-      await fs.promises.writeFile(profilePath, JSON.stringify(dummyProfiles, null, 2), 'utf8');
+      await writeJsonAtomic(profilePath, dummyProfiles);
     } catch { }
   }
 }
 
 export async function ensureVanillaVersionInstalled(minecraftRoot, minecraftVersion, installId, { onLog = null, onProgress = null } = {}) {
   await ensureLauncherProfilesExists(minecraftRoot);
-  const manifestRes = await fetch(MOJANG_MANIFEST_URL);
+  const manifestRes = await fetchWithRetry(MOJANG_MANIFEST_URL);
   if (!manifestRes.ok) throw new Error(`Failed to fetch manifest: ${manifestRes.status}`);
   const manifest = await manifestRes.json();
   const versionEntry = (manifest.versions || []).find(v => v.id === String(minecraftVersion));
   if (!versionEntry) throw new Error(`Version ${minecraftVersion} not found in manifest.`);
 
-  const versionJsonRes = await fetch(versionEntry.url);
+  const versionJsonRes = await fetchWithRetry(versionEntry.url);
   if (!versionJsonRes.ok) throw new Error(`Failed to fetch version data: ${versionJsonRes.status}`);
   const versionJson = await versionJsonRes.json();
 
@@ -626,22 +623,26 @@ export async function installMinecraft(opts, { onLog = null, onProgress = null, 
     }
     if (!resolvedLoaderVersion || !resolvedGameVersion) return { error: 'BadInput', message: 'Could not resolve Fabric game and loader versions.' };
     const installerVersion = await getLatestFabricInstallerVersion();
-    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'openlauncher-fabric-'));
-    const installerPath = path.join(tempDir, 'fabric-installer.jar');
-    const installerUrl = `https://maven.fabricmc.net/net/fabricmc/fabric-installer/${installerVersion}/fabric-installer-${installerVersion}.jar`;
-    const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `fabric-installer-${installerVersion}.jar`, { onLog, onProgress });
-    if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Fabric installer download failed.' };
-    const javaChoice = findJavaCommand(8, opts?.javaPath || '');
-    const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
-    const installerResult = await runCommand(javaCmd, ['-jar', installerPath, 'client', '-dir', minecraftRoot, '-mcversion', resolvedGameVersion, '-loader', resolvedLoaderVersion, '-noprofile', '-snapshot'], {
-      cwd: tempDir,
-      onStdout: (text) => {
-        onProgress?.({ installId, loaded: 0, total: 1, percent: null });
-        onLog?.('stdout', String(text));
-      },
-      onStderr: (text) => onLog?.('stderr', String(text)),
-    });
-    if (installerResult.code !== 0) return { error: 'FabricInstallFailed', message: `Fabric installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'spacelauncher-fabric-'));
+    try {
+      const installerPath = path.join(tempDir, 'fabric-installer.jar');
+      const installerUrl = `https://maven.fabricmc.net/net/fabricmc/fabric-installer/${installerVersion}/fabric-installer-${installerVersion}.jar`;
+      const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `fabric-installer-${installerVersion}.jar`, { onLog, onProgress });
+      if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Fabric installer download failed.' };
+      const javaChoice = findJavaCommand(8, opts?.javaPath || '');
+      const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
+      const installerResult = await runCommand(javaCmd, ['-jar', installerPath, 'client', '-dir', minecraftRoot, '-mcversion', resolvedGameVersion, '-loader', resolvedLoaderVersion, '-noprofile', '-snapshot'], {
+        cwd: tempDir,
+        onStdout: (text) => {
+          onProgress?.({ installId, loaded: 0, total: 1, percent: null });
+          onLog?.('stdout', String(text));
+        },
+        onStderr: (text) => onLog?.('stderr', String(text)),
+      });
+      if (installerResult.code !== 0) return { error: 'FabricInstallFailed', message: `Fabric installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
 
     const vanillaVersionDir = path.join(minecraftRoot, 'versions', resolvedGameVersion);
     let vanillaVersionJson = await loadLocalVersionMetadata(vanillaVersionDir);
@@ -696,32 +697,36 @@ export async function installMinecraft(opts, { onLog = null, onProgress = null, 
     if (!resolvedLoaderVersion || !resolvedGameVersion) return { error: 'BadInput', message: 'Could not resolve Quilt game and loader versions.' };
 
     const installerVersion = await getLatestQuiltInstallerVersion();
-    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'openlauncher-quilt-'));
-    const installerPath = path.join(tempDir, 'quilt-installer.jar');
-    const installerUrl = `https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/${installerVersion}/quilt-installer-${installerVersion}.jar`;
-    const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `quilt-installer-${installerVersion}.jar`, { onLog, onProgress });
-    if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Quilt installer download failed.' };
+    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'spacelauncher-quilt-'));
+    try {
+      const installerPath = path.join(tempDir, 'quilt-installer.jar');
+      const installerUrl = `https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/${installerVersion}/quilt-installer-${installerVersion}.jar`;
+      const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `quilt-installer-${installerVersion}.jar`, { onLog, onProgress });
+      if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Quilt installer download failed.' };
 
-    const javaChoice = findJavaCommand(8, opts?.javaPath || '');
-    const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
+      const javaChoice = findJavaCommand(8, opts?.javaPath || '');
+      const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
 
-    const quiltArgs = [
-      '-jar', installerPath,
-      'install', 'client',
-      resolvedGameVersion,
-      resolvedLoaderVersion,
-      `--install-dir=${minecraftRoot}`,
-      '--no-profile',
-    ];
-    const installerResult = await runCommand(javaCmd, quiltArgs, {
-      cwd: tempDir,
-      onStdout: (text) => {
-        onProgress?.({ installId, loaded: 0, total: 1, percent: null });
-        onLog?.('stdout', String(text));
-      },
-      onStderr: (text) => onLog?.('stderr', String(text)),
-    });
-    if (installerResult.code !== 0) return { error: 'QuiltInstallFailed', message: `Quilt installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+      const quiltArgs = [
+        '-jar', installerPath,
+        'install', 'client',
+        resolvedGameVersion,
+        resolvedLoaderVersion,
+        `--install-dir=${minecraftRoot}`,
+        '--no-profile',
+      ];
+      const installerResult = await runCommand(javaCmd, quiltArgs, {
+        cwd: tempDir,
+        onStdout: (text) => {
+          onProgress?.({ installId, loaded: 0, total: 1, percent: null });
+          onLog?.('stdout', String(text));
+        },
+        onStderr: (text) => onLog?.('stderr', String(text)),
+      });
+      if (installerResult.code !== 0) return { error: 'QuiltInstallFailed', message: `Quilt installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
 
     const vanillaVersionDir = path.join(minecraftRoot, 'versions', resolvedGameVersion);
     let vanillaVersionJson = await loadLocalVersionMetadata(vanillaVersionDir);
@@ -773,66 +778,57 @@ export async function installMinecraft(opts, { onLog = null, onProgress = null, 
     if (!minecraftVersion) return { error: 'NotFound', message: 'Could not map Forge version to Minecraft version.' };
 
     const installerUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${minecraftVersion}-${forgeVersion}/forge-${minecraftVersion}-${forgeVersion}-installer.jar`;
-    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'openlauncher-forge-'));
-    const installerPath = path.join(tempDir, 'forge-installer.jar');
-    const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `forge-installer-${forgeVersion}.jar`, { onLog, onProgress });
-    if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Forge installer download failed' };
+    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'spacelauncher-forge-'));
+    try {
+      const installerPath = path.join(tempDir, 'forge-installer.jar');
+      const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `forge-installer-${forgeVersion}.jar`, { onLog, onProgress });
+      if (!installerDownload.ok) return { error: 'DownloadFailed', message: 'Forge installer download failed' };
 
-    const installerZip = new AdmZip(installerPath);
-    const forgeInstallProfile = parseJsonFromZipEntry(installerZip, ['install_profile.json']);
-    const forgeVersionJson = parseJsonFromZipEntry(installerZip, ['version.json']) || forgeInstallProfile?.versionInfo || forgeInstallProfile;
-    if (!forgeVersionJson) return { error: 'InvalidInstaller', message: 'Forge installer did not contain version metadata.' };
+      const installerZip = new AdmZip(installerPath);
+      const forgeInstallProfile = parseJsonFromZipEntry(installerZip, ['install_profile.json']);
+      const forgeVersionJson = parseJsonFromZipEntry(installerZip, ['version.json']) || forgeInstallProfile?.versionInfo || forgeInstallProfile;
+      if (!forgeVersionJson) return { error: 'InvalidInstaller', message: 'Forge installer did not contain version metadata.' };
 
-    const forgeVersionId = String(
-      forgeVersionJson?.version ||
-      forgeInstallProfile?.install?.version ||
-      forgeVersionJson?.install?.version ||
-      forgeVersionJson?.id ||
-      `forge-${forgeVersion}-${minecraftVersion}`
-    ).trim();
-    const resolvedMinecraftVersion = String(
-      forgeVersionJson?.minecraft ||
-      forgeInstallProfile?.install?.minecraft ||
-      forgeVersionJson?.install?.minecraft ||
-      minecraftVersion
-    ).trim();
+      const forgeVersionId = String(
+        forgeVersionJson?.version ||
+        forgeInstallProfile?.install?.version ||
+        forgeVersionJson?.install?.version ||
+        forgeVersionJson?.id ||
+        `forge-${forgeVersion}-${minecraftVersion}`
+      ).trim();
+      const resolvedMinecraftVersion = String(
+        forgeVersionJson?.minecraft ||
+        forgeInstallProfile?.install?.minecraft ||
+        forgeVersionJson?.install?.minecraft ||
+        minecraftVersion
+      ).trim();
 
-    if (!resolvedMinecraftVersion) return { error: 'InvalidInstaller', message: 'Forge installer did not define the Minecraft base version.' };
+      if (!resolvedMinecraftVersion) return { error: 'InvalidInstaller', message: 'Forge installer did not define the Minecraft base version.' };
 
-    const vanillaResult = await ensureVanillaVersionInstalled(minecraftRoot, resolvedMinecraftVersion, installId, { onLog, onProgress });
-    if (!vanillaResult) return { error: 'VanillaInstallFailed', message: `Failed to install vanilla ${resolvedMinecraftVersion} required for Forge.` };
+      const vanillaResult = await ensureVanillaVersionInstalled(minecraftRoot, resolvedMinecraftVersion, installId, { onLog, onProgress });
+      if (!vanillaResult) return { error: 'VanillaInstallFailed', message: `Failed to install vanilla ${resolvedMinecraftVersion} required for Forge.` };
 
-    const outDir = path.join(minecraftRoot, 'versions', forgeVersionId);
-    await fs.promises.mkdir(outDir, { recursive: true });
+      const outDir = path.join(minecraftRoot, 'versions', forgeVersionId);
+      await fs.promises.mkdir(outDir, { recursive: true });
 
-    const vanillaJarPath = path.join(minecraftRoot, 'versions', resolvedMinecraftVersion, `${resolvedMinecraftVersion}.jar`);
-    const forgeVanillaJarPath = path.join(outDir, `${resolvedMinecraftVersion}.jar`);
+      const vanillaJarPath = path.join(minecraftRoot, 'versions', resolvedMinecraftVersion, `${resolvedMinecraftVersion}.jar`);
+      const forgeVanillaJarPath = path.join(outDir, `${resolvedMinecraftVersion}.jar`);
 
-    if (fs.existsSync(vanillaJarPath)) {
-      await fs.promises.copyFile(vanillaJarPath, forgeVanillaJarPath);
-    } else {
-      const clientUrl = vanillaResult.versionJson?.downloads?.client?.url;
-      if (clientUrl) {
-        await ensureJarFile(clientUrl, forgeVanillaJarPath, { onLog });
+      if (fs.existsSync(vanillaJarPath)) {
+        await fs.promises.copyFile(vanillaJarPath, forgeVanillaJarPath);
       } else {
-        return { error: 'MissingVanillaJar', message: `Vanilla jar not found for ${resolvedMinecraftVersion}.` };
+        const clientUrl = vanillaResult.versionJson?.downloads?.client?.url;
+        if (clientUrl) {
+          await ensureJarFile(clientUrl, forgeVanillaJarPath, { onLog });
+        } else {
+          return { error: 'MissingVanillaJar', message: `Vanilla jar not found for ${resolvedMinecraftVersion}.` };
+        }
       }
-    }
 
-    const javaChoice = findJavaCommand(8, opts?.javaPath || '');
-    const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
+      const javaChoice = findJavaCommand(8, opts?.javaPath || '');
+      const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
 
-    let patchResult = await runCommand(javaCmd, ['-jar', installerPath, '--installClient', minecraftRoot], {
-      cwd: tempDir,
-      onStdout: (text) => {
-        onProgress?.({ installId, loaded: 0, total: 1, percent: null });
-        onLog?.('stdout', String(text));
-      },
-      onStderr: (text) => onLog?.('stderr', String(text)),
-    });
-
-    if (patchResult.code !== 0) {
-      patchResult = await runCommand(javaCmd, ['-jar', installerPath, minecraftRoot], {
+      let patchResult = await runCommand(javaCmd, ['-jar', installerPath, '--installClient', minecraftRoot], {
         cwd: tempDir,
         onStdout: (text) => {
           onProgress?.({ installId, loaded: 0, total: 1, percent: null });
@@ -840,66 +836,79 @@ export async function installMinecraft(opts, { onLog = null, onProgress = null, 
         },
         onStderr: (text) => onLog?.('stderr', String(text)),
       });
-    }
 
-    if (patchResult.code !== 0) {
-      return { error: 'ForgePatchFailed', message: `Forge patch process failed with code ${patchResult.code}. ${patchResult.stderr || patchResult.stdout || ''}`.trim() };
-    }
-
-    if (Array.isArray(forgeInstallProfile?.libraries)) {
-      await installForgeLibraries(forgeInstallProfile.libraries, minecraftRoot, installId, { onLog });
-    }
-
-    const versionJsonPath = path.join(outDir, `${forgeVersionId}.json`);
-    await fs.promises.writeFile(versionJsonPath, JSON.stringify(forgeVersionJson, null, 2), 'utf8');
-
-    const forgeLibPath = path.join(minecraftRoot, 'libraries', 'net', 'minecraftforge', 'forge', forgeVersion);
-    await fs.promises.mkdir(forgeLibPath, { recursive: true });
-
-    const universalJarNames = [
-      `maven/net/minecraftforge/forge/${forgeVersion}/forge-${forgeVersion}-universal.jar`,
-      `forge-${forgeVersion}-universal.jar`,
-      `maven/net/minecraftforge/forge/${forgeVersion}/forge-${forgeVersion}.jar`,
-      `forge-${forgeVersion}.jar`
-    ];
-
-    for (const jarName of universalJarNames) {
-      if (installerZip.getEntry(jarName)) {
-        const targetJar = path.join(forgeLibPath, path.basename(jarName));
-        await extractZipEntryToFile(installerZip, jarName, targetJar);
+      if (patchResult.code !== 0) {
+        patchResult = await runCommand(javaCmd, ['-jar', installerPath, minecraftRoot], {
+          cwd: tempDir,
+          onStdout: (text) => {
+            onProgress?.({ installId, loaded: 0, total: 1, percent: null });
+            onLog?.('stdout', String(text));
+          },
+          onStderr: (text) => onLog?.('stderr', String(text)),
+        });
       }
-    }
 
-    let patchedJarPath = path.join(outDir, `${forgeVersionId}.jar`);
-    const alternativePatchedJar = path.join(outDir, `${forgeVersionId}-patched.jar`);
-    const vanillaPatchedJar = path.join(outDir, `${resolvedMinecraftVersion}-patched.jar`);
-
-    if (fs.existsSync(alternativePatchedJar)) {
-      await fs.promises.rename(alternativePatchedJar, patchedJarPath);
-    } else if (fs.existsSync(vanillaPatchedJar)) {
-      await fs.promises.rename(vanillaPatchedJar, patchedJarPath);
-    }
-
-    if (!fs.existsSync(patchedJarPath)) {
-      if (fs.existsSync(forgeVanillaJarPath)) {
-        patchedJarPath = forgeVanillaJarPath;
-      } else {
-        return { error: 'MissingPatchedJar', message: 'Forge installation completed but patched jar not found.' };
+      if (patchResult.code !== 0) {
+        return { error: 'ForgePatchFailed', message: `Forge patch process failed with code ${patchResult.code}. ${patchResult.stderr || patchResult.stdout || ''}`.trim() };
       }
+
+      if (Array.isArray(forgeInstallProfile?.libraries)) {
+        await installForgeLibraries(forgeInstallProfile.libraries, minecraftRoot, installId, { onLog });
+      }
+
+      const versionJsonPath = path.join(outDir, `${forgeVersionId}.json`);
+      await fs.promises.writeFile(versionJsonPath, JSON.stringify(forgeVersionJson, null, 2), 'utf8');
+
+      const forgeLibPath = path.join(minecraftRoot, 'libraries', 'net', 'minecraftforge', 'forge', forgeVersion);
+      await fs.promises.mkdir(forgeLibPath, { recursive: true });
+
+      const universalJarNames = [
+        `maven/net/minecraftforge/forge/${forgeVersion}/forge-${forgeVersion}-universal.jar`,
+        `forge-${forgeVersion}-universal.jar`,
+        `maven/net/minecraftforge/forge/${forgeVersion}/forge-${forgeVersion}.jar`,
+        `forge-${forgeVersion}.jar`
+      ];
+
+      for (const jarName of universalJarNames) {
+        if (installerZip.getEntry(jarName)) {
+          const targetJar = path.join(forgeLibPath, path.basename(jarName));
+          await extractZipEntryToFile(installerZip, jarName, targetJar);
+        }
+      }
+
+      let patchedJarPath = path.join(outDir, `${forgeVersionId}.jar`);
+      const alternativePatchedJar = path.join(outDir, `${forgeVersionId}-patched.jar`);
+      const vanillaPatchedJar = path.join(outDir, `${resolvedMinecraftVersion}-patched.jar`);
+
+      if (fs.existsSync(alternativePatchedJar)) {
+        await fs.promises.rename(alternativePatchedJar, patchedJarPath);
+      } else if (fs.existsSync(vanillaPatchedJar)) {
+        await fs.promises.rename(vanillaPatchedJar, patchedJarPath);
+      }
+
+      if (!fs.existsSync(patchedJarPath)) {
+        if (fs.existsSync(forgeVanillaJarPath)) {
+          patchedJarPath = forgeVanillaJarPath;
+        } else {
+          return { error: 'MissingPatchedJar', message: 'Forge installation completed but patched jar not found.' };
+        }
+      }
+
+      await persistInstalledVersion(outDir, {
+        id: forgeVersionId,
+        label: `Forge ${forgeVersion} - ${resolvedMinecraftVersion}`,
+        type: 'forge',
+        mcVer: resolvedMinecraftVersion,
+        forgeVersion,
+        versionJson: forgeVersionJson,
+        clientJar: path.basename(patchedJarPath),
+      });
+
+      onComplete?.({ installId, type, version: `${forgeVersion} / ${resolvedMinecraftVersion}`, path: versionJsonPath });
+      return { ok: true, path: versionJsonPath, installId };
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
-
-    await persistInstalledVersion(outDir, {
-      id: forgeVersionId,
-      label: `Forge ${forgeVersion} - ${resolvedMinecraftVersion}`,
-      type: 'forge',
-      mcVer: resolvedMinecraftVersion,
-      forgeVersion,
-      versionJson: forgeVersionJson,
-      clientJar: path.basename(patchedJarPath),
-    });
-
-    onComplete?.({ installId, type, version: `${forgeVersion} / ${resolvedMinecraftVersion}`, path: versionJsonPath });
-    return { ok: true, path: versionJsonPath, installId };
   }
 
   if (type === 'neoforge') {
@@ -921,32 +930,36 @@ export async function installMinecraft(opts, { onLog = null, onProgress = null, 
     await ensureVanillaVersionInstalled(minecraftRoot, resolvedMinecraftVersion, installId, { onLog, onProgress });
 
     const installerUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${neoVersion}/neoforge-${neoVersion}-installer.jar`;
-    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'openlauncher-neoforge-'));
-    const installerPath = path.join(tempDir, 'neoforge-installer.jar');
-    const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `neoforge-${neoVersion}-installer.jar`, { onLog, onProgress });
-    if (!installerDownload.ok) return { error: 'DownloadFailed', message: `NeoForge installer download failed: ${installerDownload.status || 'unknown'}` };
+    const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'spacelauncher-neoforge-'));
+    try {
+      const installerPath = path.join(tempDir, 'neoforge-installer.jar');
+      const installerDownload = await downloadToFile(installerUrl, installerPath, installId, `neoforge-${neoVersion}-installer.jar`, { onLog, onProgress });
+      if (!installerDownload.ok) return { error: 'DownloadFailed', message: `NeoForge installer download failed: ${installerDownload.status || 'unknown'}` };
 
-    const majorVerMatch = neoVersion.match(/^(\d+)\./);
-    const neoMajor = majorVerMatch ? parseInt(majorVerMatch[1], 10) : 21;
-    const isJava21Required = neoMajor >= 21 || neoVersion.startsWith('20.5') || neoVersion.startsWith('20.6') || resolvedMinecraftVersion.startsWith('1.20.5') || resolvedMinecraftVersion.startsWith('1.20.6') || resolvedMinecraftVersion.startsWith('1.21') || resolvedMinecraftVersion.startsWith('26.');
-    const reqJava = isJava21Required ? 21 : 17;
+      const majorVerMatch = neoVersion.match(/^(\d+)\./);
+      const neoMajor = majorVerMatch ? parseInt(majorVerMatch[1], 10) : 21;
+      const isJava21Required = neoMajor >= 21 || neoVersion.startsWith('20.5') || neoVersion.startsWith('20.6') || resolvedMinecraftVersion.startsWith('1.20.5') || resolvedMinecraftVersion.startsWith('1.20.6') || resolvedMinecraftVersion.startsWith('1.21') || resolvedMinecraftVersion.startsWith('26.');
+      const reqJava = isJava21Required ? 21 : 17;
 
-    const javaChoice = findJavaCommand(reqJava, opts?.javaPath || '') || findJavaCommand(8, opts?.javaPath || '');
-    const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
+      const javaChoice = findJavaCommand(reqJava, opts?.javaPath || '') || findJavaCommand(8, opts?.javaPath || '');
+      const javaCmd = javaChoice?.javaCmd || resolveJavaCommand(opts?.javaPath || '');
 
-    onLog?.('info', `Running NeoForge installer using ${javaCmd}...`);
+      onLog?.('info', `Running NeoForge installer using ${javaCmd}...`);
 
-    const installerResult = await runCommand(javaCmd, ['-jar', installerPath, '--installClient', minecraftRoot], {
-      cwd: tempDir,
-      onStdout: (text) => {
-        onProgress?.({ installId, loaded: 0, total: 1, percent: null });
-        onLog?.('stdout', String(text));
-      },
-      onStderr: (text) => onLog?.('stderr', String(text)),
-    });
+      const installerResult = await runCommand(javaCmd, ['-jar', installerPath, '--installClient', minecraftRoot], {
+        cwd: tempDir,
+        onStdout: (text) => {
+          onProgress?.({ installId, loaded: 0, total: 1, percent: null });
+          onLog?.('stdout', String(text));
+        },
+        onStderr: (text) => onLog?.('stderr', String(text)),
+      });
 
-    if (installerResult.code !== 0) {
-      return { error: 'NeoForgeInstallFailed', message: `NeoForge installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+      if (installerResult.code !== 0) {
+        return { error: 'NeoForgeInstallFailed', message: `NeoForge installer exited with code ${installerResult.code}. ${installerResult.stderr || installerResult.stdout || ''}`.trim() };
+      }
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
 
     const possibleDirs = [
