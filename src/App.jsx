@@ -874,7 +874,8 @@ export default function App() {
     }
 
     if (!activeProfile) return;
-    const targetInstId = overrideInstanceId || activeInstanceId;
+    const resolvedOverrideId = typeof overrideInstanceId === 'string' && overrideInstanceId.trim() ? overrideInstanceId : null;
+    const targetInstId = resolvedOverrideId || activeInstanceId;
     const activeInst = instances.find(i => i.id === targetInstId) || null;
     if (!activeInst) {
       pushToast({
@@ -3179,7 +3180,7 @@ export default function App() {
                   subTab={instanceSubTab}
                   onSubTabChange={setInstanceSubTab}
                   onBack={() => setInstanceWorkspaceOpen(false)}
-                  onPlay={handlePlay}
+                  onPlay={() => handlePlay(activeInstance?.id)}
                   gameState={gameState}
                   isRunningThisInstance={gameState === 'running'}
                   onEditInstance={(inst) => setInstanceEditor({ mode: 'edit', instance: inst })}

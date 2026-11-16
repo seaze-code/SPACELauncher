@@ -45,23 +45,24 @@ export function ScreenshotsTab({
 
   return (
     <div className="tab-panel">
-      <div className="toolbar">
-        <div className="toolbar-search-wrap">
-          <Icon d={ICONS.search} size={14} className="toolbar-search-icon" />
+      <div className="mods-toolbar">
+        <div className="mods-search-box">
+          <Icon d={ICONS.search} size={13} />
           <input
-            className="toolbar-input"
+            type="text"
+            className="mods-search-input"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder={t('screenshots.searchPlaceholder')}
           />
           {search && (
-            <button type="button" className="toolbar-clear-btn" onClick={() => setSearch('')} aria-label="Clear">
-              <Icon d={ICONS.x} size={12} />
+            <button type="button" className="search-clear-btn" onClick={() => setSearch('')} aria-label="Clear">
+              <Icon d={ICONS.x} size={11} />
             </button>
           )}
         </div>
 
-        <div className="toolbar-actions">
+        <div className="mods-toolbar-actions">
           <button
             type="button"
             className="btn-secondary"

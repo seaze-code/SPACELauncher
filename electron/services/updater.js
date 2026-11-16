@@ -175,14 +175,38 @@ export async function launchDownloadedUpdate(filePath) {
     }
     if (extension === '.appimage') {
       try {
-        if (process.env.APPIMAGE) {
+        const appImageTarget = process.env.APPIMAGE;
+        if (appImageTarget) {
+          let targetWritable = false;
           try {
-            await fs.promises.copyFile(resolvedPath, process.env.APPIMAGE);
-            await fs.promises.chmod(process.env.APPIMAGE, 0o755);
-            const child = spawn(process.env.APPIMAGE, [], { detached: true, stdio: 'ignore' });
-            child.unref();
-            return { ok: true, launched: true, path: process.env.APPIMAGE };
+            fs.accessSync(appImageTarget, fs.constants.W_OK);
+            fs.accessSync(path.dirname(appImageTarget), fs.constants.W_OK);
+            targetWritable = true;
           } catch { }
+          if (targetWritable) {
+            const currentPid = process.pid;
+            const shPath = path.join(app.getPath('temp'), `spacelauncher-appimage-${currentPid}.sh`);
+            const shLines = [
+              '#!/bin/sh',
+              `while kill -0 ${currentPid} 2>/dev/null; do sleep 0.25; done`,
+              'sleep 0.4',
+              `TARGET="${appImageTarget.replace(/"/g, '\\"')}"`,
+              `STAGED="${resolvedPath.replace(/"/g, '\\"')}"`,
+              'TMP_TARGET="${TARGET}.new"',
+              'if cp -f "$STAGED" "$TMP_TARGET" && chmod +x "$TMP_TARGET" && mv -f "$TMP_TARGET" "$TARGET"; then',
+              '  rm -f "$STAGED"',
+              '  "$TARGET" >/dev/null 2>&1 &',
+              'else',
+              '  rm -f "$TMP_TARGET"',
+              '  "$STAGED" >/dev/null 2>&1 &',
+              'fi',
+              `rm -f "${shPath.replace(/"/g, '\\"')}"`,
+            ].join('\n');
+            await fs.promises.writeFile(shPath, shLines, { mode: 0o755 });
+            const child = spawn('/bin/sh', [shPath], { detached: true, stdio: 'ignore' });
+            child.unref();
+            return { ok: true, launched: true, path: appImageTarget };
+          }
         }
         const child = spawn(resolvedPath, [], { detached: true, stdio: 'ignore' });
         child.unref();
@@ -312,8 +336,9 @@ export async function launchDownloadedUpdate(filePath) {
 function isAppAsarWritable() {
   try {
     if (!app.isPackaged || !process.resourcesPath) return false;
-    // Portable builds extract to a temporary directory; delta patching %TEMP% does not persist.
+    // Portable builds (Windows Portable / Linux AppImage) extract to temp/FUSE; delta patching does not persist.
     if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_FILE) return false;
+    if (process.platform === 'linux' && process.env.APPIMAGE) return false;
     const targetAsar = path.join(process.resourcesPath, 'app.asar');
     if (!fs.existsSync(targetAsar)) return false;
     fs.accessSync(process.resourcesPath, fs.constants.W_OK);
