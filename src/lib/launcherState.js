@@ -2,6 +2,16 @@ import fs from 'fs/promises';
 import path from 'path';
 
 const STATE_FILE_NAME = 'launcher-state.json';
+const stateCache = new Map();
+
+async function getFileMtimeMs(filePath) {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.mtimeMs;
+  } catch {
+    return 0;
+  }
+}
 
 export const DEFAULT_LAUNCHER_STATE = {
   profiles: [],
@@ -112,8 +122,22 @@ function normalizeSettings(settings, fallbackSettings = DEFAULT_LAUNCHER_STATE.s
 }
 
 export async function loadLauncherState(storageDir) {
-  const state = await readJsonFile(stateFilePath(storageDir), DEFAULT_LAUNCHER_STATE);
-  const authStore = await readJsonFile(path.join(storageDir, 'auth-store.json'), {});
+  const sPath = stateFilePath(storageDir);
+  const authPath = path.join(storageDir, 'auth-store.json');
+  const [stateMtime, authMtime] = await Promise.all([
+    getFileMtimeMs(sPath),
+    getFileMtimeMs(authPath),
+  ]);
+
+  const cached = stateCache.get(storageDir);
+  if (cached && cached.stateMtime === stateMtime && cached.authMtime === authMtime) {
+    return cached.value;
+  }
+
+  const [state, authStore] = await Promise.all([
+    readJsonFile(sPath, DEFAULT_LAUNCHER_STATE),
+    readJsonFile(authPath, {}),
+  ]);
   const rawProfiles = Array.isArray(state.profiles) ? state.profiles : [];
   const profiles = rawProfiles.map((p, i) => {
     const normalized = normalizeProfile(p, i);
@@ -125,7 +149,7 @@ export async function loadLauncherState(storageDir) {
     }
     return normalized;
   });
-  return {
+  const result = {
     profiles,
     activeProfileId: typeof state.activeProfileId === 'string' && state.activeProfileId ? state.activeProfileId : (profiles[0]?.id || 'default'),
     mods: Array.isArray(state.mods) ? state.mods : [],
@@ -143,6 +167,8 @@ export async function loadLauncherState(storageDir) {
       : DEFAULT_LAUNCHER_STATE.latest,
     activeInstanceId: typeof state.activeInstanceId === 'string' && state.activeInstanceId ? state.activeInstanceId : null,
   };
+  stateCache.set(storageDir, { stateMtime, authMtime, value: result });
+  return result;
 }
 
 const pendingSaveQueues = new Map();
@@ -197,7 +223,8 @@ export async function saveLauncherState(storageDir, state) {
   };
 
   const targetPath = stateFilePath(storageDir);
-  const payload = JSON.stringify(normalizedState, null, 2);
+  const payload = JSON.stringify(normalizedState);
+  stateCache.delete(storageDir);
   const prev = pendingSaveQueues.get(targetPath) || Promise.resolve();
   const next = prev
     .catch(() => {})

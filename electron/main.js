@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, nativeTheme } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './services/windowManager.js';
@@ -19,6 +20,25 @@ if (isDev) {
 
 app.setName('SpaceLauncher');
 nativeTheme.themeSource = 'system';
+
+// On Linux AppImage / portable tar.gz builds, chrome-sandbox lacks SUID root (4755),
+// which causes Chromium to abort on modern kernels unless --no-sandbox is enabled.
+if (process.platform === 'linux') {
+  if (process.env.APPIMAGE) {
+    app.commandLine.appendSwitch('no-sandbox');
+  } else {
+    try {
+      const sandboxPath = path.join(path.dirname(process.execPath), 'chrome-sandbox');
+      const stat = fs.statSync(sandboxPath);
+      const isRootSuid = stat.uid === 0 && (stat.mode & 0o4000) !== 0;
+      if (!isRootSuid) {
+        app.commandLine.appendSwitch('no-sandbox');
+      }
+    } catch {
+      app.commandLine.appendSwitch('no-sandbox');
+    }
+  }
+}
 
 // Electron & Chromium engine optimizations (Ultra low RAM, disk cache, background processes)
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=128 --expose-gc');

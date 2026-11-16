@@ -5,10 +5,10 @@ import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { getMinecraftRoot, getInstanceDir } from './paths.js';
 import {
-  findJavaCommand,
+  findJavaCommandAsync,
   resolveJavaCommand,
-  detectJavaMajor,
-  collectCommonJavaCandidates,
+  inspectJavaExecutableAsync,
+  detectAllJavaInstallations,
 } from './javaDetector.js';
 import {
   ensureJarFile,
@@ -750,33 +750,32 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
 
   async function findCompatibleJava() {
     if (requiredJavaMajor) {
-      const compatibleJava = findJavaCommand(requiredJavaMajor, '');
+      const compatibleJava = await findJavaCommandAsync(requiredJavaMajor, '');
       if (compatibleJava?.javaCmd && compatibleJava.javaMajor >= requiredJavaMajor) {
         return { javaCmd: compatibleJava.javaCmd, javaMajor: compatibleJava.javaMajor, source: 'auto-detected (compatible)' };
       }
     }
-    const allCandidates = collectCommonJavaCandidates();
-    let bestCandidate = null;
-    let bestMajor = 0;
-    for (const candidate of allCandidates) {
-      const major = detectJavaMajor(candidate);
-      if (major && major > bestMajor) {
-        bestMajor = major;
-        bestCandidate = candidate;
-      }
+    const installations = await detectAllJavaInstallations();
+    if (installations.length > 0) {
+      const best = installations[0];
+      return { javaCmd: best.path, javaMajor: best.major, source: 'auto-detected (best available)' };
     }
-    if (bestCandidate) {
-      return { javaCmd: bestCandidate, javaMajor: bestMajor, source: 'auto-detected (best available)' };
-    }
-    return { javaCmd: resolveJavaCommand(''), javaMajor: detectJavaMajor(resolveJavaCommand('')), source: 'system default' };
+    const defaultCmd = resolveJavaCommand('');
+    const info = await inspectJavaExecutableAsync(defaultCmd);
+    return { javaCmd: defaultCmd, javaMajor: info?.major || null, source: 'system default' };
   }
 
   let finalJavaCmd = '';
   let detectedJavaMajor = null;
 
   if (configuredJavaPath) {
-    if (fs.existsSync(configuredJavaPath)) {
-      detectedJavaMajor = detectJavaMajor(configuredJavaPath);
+    let configuredExists = false;
+    try {
+      await fs.promises.access(configuredJavaPath);
+      configuredExists = true;
+    } catch { }
+    if (configuredExists) {
+      detectedJavaMajor = (await inspectJavaExecutableAsync(configuredJavaPath))?.major || null;
       if (requiredJavaMajor && detectedJavaMajor && detectedJavaMajor >= requiredJavaMajor) {
         finalJavaCmd = configuredJavaPath;
         onLog?.('info', `✅ Using configured Java ${detectedJavaMajor} from ${javaPathSource} (meets requirement Java ${requiredJavaMajor}+)`);
@@ -838,7 +837,7 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
           detectedJavaMajor = compatible.javaMajor;
         } else {
           finalJavaCmd = resolveJavaCommand('');
-          detectedJavaMajor = detectJavaMajor(finalJavaCmd);
+          detectedJavaMajor = (await inspectJavaExecutableAsync(finalJavaCmd))?.major || null;
         }
         onLog?.('warn', `⚠️ Using fallback Java ${detectedJavaMajor || '?'} from ${finalJavaCmd}`);
       }
@@ -871,7 +870,7 @@ export async function launchMinecraft(opts, { onLog = null, onAssetProgress = nu
         onLog?.('info', `✅ Using ${compatible.source} Java ${detectedJavaMajor} from ${finalJavaCmd}`);
       } else {
         finalJavaCmd = resolveJavaCommand('');
-        detectedJavaMajor = detectJavaMajor(finalJavaCmd);
+        detectedJavaMajor = (await inspectJavaExecutableAsync(finalJavaCmd))?.major || null;
         onLog?.('warn', `⚠️ Using system default Java ${detectedJavaMajor || '?'} from ${finalJavaCmd}`);
       }
     }

@@ -333,6 +333,35 @@ export function findJavaCommand(requiredMajor, preferredPath = '') {
 }
 
 /**
+ * Non-blocking version of findJavaCommand that leverages cached parallel Java discovery.
+ */
+export async function findJavaCommandAsync(requiredMajor, preferredPath = '') {
+  const preferredCandidates = expandJavaExecutableCandidate(preferredPath);
+  for (const candidate of preferredCandidates) {
+    const info = await inspectJavaExecutableAsync(candidate);
+    if (info?.major && (!requiredMajor || info.major >= requiredMajor)) {
+      return { javaCmd: info.path, javaMajor: info.major };
+    }
+  }
+
+  const installations = await detectAllJavaInstallations();
+  if (installations.length > 0) {
+    const compatible = installations.filter(item => !requiredMajor || item.major >= requiredMajor);
+    if (compatible.length > 0) {
+      compatible.sort((a, b) => a.major - b.major);
+      const chosen = requiredMajor ? compatible[0] : compatible[compatible.length - 1];
+      return { javaCmd: chosen.path, javaMajor: chosen.major };
+    }
+    const highest = installations[0];
+    return { javaCmd: highest.path, javaMajor: highest.major };
+  }
+
+  const fallback = resolveJavaCommand(preferredPath);
+  const fallbackInfo = await inspectJavaExecutableAsync(fallback);
+  return { javaCmd: fallback, javaMajor: fallbackInfo?.major || null };
+}
+
+/**
  * Non-blocking discovery of all Java runtimes on the machine for UI selectors.
  */
 export async function detectAllJavaInstallations({ forceRefresh = false } = {}) {

@@ -589,10 +589,10 @@ export async function extractShaderEmbeddedIcon(fullPath, isDirectory) {
     } else if (isDirectory) {
       for (const candidate of iconCandidates) {
         const p = path.join(fullPath, ...candidate.split('/'));
-        if (fs.existsSync(p)) {
+        try {
           const buf = await fs.promises.readFile(p);
           return `data:image/png;base64,${buf.toString('base64')}`;
-        }
+        } catch { }
       }
     }
   } catch {}
@@ -611,12 +611,13 @@ async function extractPackMcMeta(fullPath, isDirectory) {
       if (pngEntry) iconUrl = `data:image/png;base64,${pngEntry.getData().toString('base64')}`;
     } else if (isDirectory) {
       const mcmetaPath = path.join(fullPath, 'pack.mcmeta');
-      if (fs.existsSync(mcmetaPath)) rawJson = await fs.promises.readFile(mcmetaPath, 'utf8');
       const pngPath = path.join(fullPath, 'pack.png');
-      if (fs.existsSync(pngPath)) {
-        const buf = await fs.promises.readFile(pngPath);
-        iconUrl = `data:image/png;base64,${buf.toString('base64')}`;
-      }
+      const [rawRes, pngRes] = await Promise.allSettled([
+        fs.promises.readFile(mcmetaPath, 'utf8'),
+        fs.promises.readFile(pngPath),
+      ]);
+      if (rawRes.status === 'fulfilled') rawJson = rawRes.value;
+      if (pngRes.status === 'fulfilled') iconUrl = `data:image/png;base64,${pngRes.value.toString('base64')}`;
     }
 
     let description = '';
