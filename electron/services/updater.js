@@ -107,14 +107,17 @@ export function pickUpdateAsset(release) {
       const assetName = String(asset.name || '').toLowerCase();
       let score = 0;
       if (platform === 'win32') {
+        const isPortableRunning = Boolean(process.env.PORTABLE_EXECUTABLE_FILE);
         if (assetName.endsWith('.exe')) {
           if (assetName.includes('portable')) {
-            score += 80;
+            score += isPortableRunning ? 140 : 80;
+          } else if (assetName.includes('websetup')) {
+            score += isPortableRunning ? 60 : 110;
           } else {
-            score += 100;
+            score += isPortableRunning ? 70 : 125;
           }
         }
-        if (assetName.includes('setup') || assetName.includes('installer')) score += 20;
+        if (assetName.includes('setup') || assetName.includes('installer')) score += 10;
         if (assetName.endsWith('.zip')) score += 90;
         if (assetName.includes('win')) score += 5;
       } else if (platform === 'linux') {
@@ -212,8 +215,68 @@ export async function launchDownloadedUpdate(filePath) {
       return { ok: true, launched: true, path: resolvedPath };
     }
     if (extension === '.exe') {
+      const currentPid = process.pid;
+      const portableTarget = process.env.PORTABLE_EXECUTABLE_FILE;
+      const esc = (p) => String(p).replace(/'/g, "''");
+
       try {
-        const child = spawn(resolvedPath, ['/S'], {
+        if (portableTarget && basename.includes('portable')) {
+          // Portable build: wait for current process to exit, replace portable .exe with retry, then relaunch
+          const psScriptPath = path.join(app.getPath('temp'), `spacelauncher-portable-${currentPid}.ps1`);
+          const psLines = [
+            `while (Get-Process -Id ${currentPid} -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }`,
+            `Start-Sleep -Milliseconds 500`,
+            `$target = '${esc(portableTarget)}'`,
+            `$staged = '${esc(resolvedPath)}'`,
+            `$backup = '${esc(portableTarget)}.bak'`,
+            `$replaced = $false`,
+            `for ($i = 0; $i -lt 20; $i++) {`,
+            `  try {`,
+            `    if (Test-Path $target) { Copy-Item -Path $target -Destination $backup -Force -ErrorAction Stop }`,
+            `    Copy-Item -Path $staged -Destination $target -Force -ErrorAction Stop`,
+            `    Remove-Item -Path $staged -Force -ErrorAction SilentlyContinue`,
+            `    Remove-Item -Path $backup -Force -ErrorAction SilentlyContinue`,
+            `    $replaced = $true`,
+            `    break`,
+            `  } catch {`,
+            `    Start-Sleep -Milliseconds 250`,
+            `  }`,
+            `}`,
+            `if (-not $replaced -and (Test-Path $backup)) {`,
+            `  Copy-Item -Path $backup -Destination $target -Force -ErrorAction SilentlyContinue`,
+            `}`,
+            `if ($replaced) { Start-Process -FilePath $target } else { Start-Process -FilePath $staged }`,
+            `Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue`,
+          ].join('\r\n');
+          await fs.promises.writeFile(psScriptPath, psLines, 'utf8');
+          const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', psScriptPath], {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true,
+          });
+          child.unref();
+          return { ok: true, launched: true, path: portableTarget };
+        }
+
+        // Installed NSIS / WebSetup: wait for app exit first so SpaceLauncher.exe is unlocked,
+        // and elevate with RunAs if installed in a non-writable directory (e.g. Program Files).
+        const needsElevation = !isAppAsarWritable();
+        const psScriptPath = path.join(app.getPath('temp'), `spacelauncher-install-${currentPid}.ps1`);
+        const startArgs = needsElevation
+          ? `Start-Process -FilePath '${esc(resolvedPath)}' -ArgumentList '/S' -Verb RunAs`
+          : `Start-Process -FilePath '${esc(resolvedPath)}' -ArgumentList '/S'`;
+        const psLines = [
+          `while (Get-Process -Id ${currentPid} -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }`,
+          `Start-Sleep -Milliseconds 500`,
+          `try {`,
+          `  ${startArgs}`,
+          `} catch {`,
+          `  Start-Process -FilePath '${esc(resolvedPath)}'`,
+          `}`,
+          `Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue`,
+        ].join('\r\n');
+        await fs.promises.writeFile(psScriptPath, psLines, 'utf8');
+        const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', psScriptPath], {
           detached: true,
           stdio: 'ignore',
           windowsHide: true,
@@ -221,6 +284,10 @@ export async function launchDownloadedUpdate(filePath) {
         child.unref();
         return { ok: true, launched: true, path: resolvedPath };
       } catch (e) {
+        try {
+          const openErr = await shell.openPath(resolvedPath);
+          if (!openErr) return { ok: true, launched: true, path: resolvedPath };
+        } catch { }
         try { await shell.openExternal(UPDATE_RELEASES_PAGE); } catch { }
         return { ok: false, launched: false, path: resolvedPath, error: e?.message || String(e) };
       }
@@ -245,10 +312,19 @@ export async function launchDownloadedUpdate(filePath) {
 function isAppAsarWritable() {
   try {
     if (!app.isPackaged || !process.resourcesPath) return false;
+    // Portable builds extract to a temporary directory; delta patching %TEMP% does not persist.
+    if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_FILE) return false;
     const targetAsar = path.join(process.resourcesPath, 'app.asar');
     if (!fs.existsSync(targetAsar)) return false;
     fs.accessSync(process.resourcesPath, fs.constants.W_OK);
     fs.accessSync(targetAsar, fs.constants.W_OK);
+    // On Windows, fs.accessSync(W_OK) only checks the read-only attribute, not NTFS ACLs (e.g. Program Files).
+    if (process.platform === 'win32') {
+      const probePath = path.join(process.resourcesPath, `.write-probe-${process.pid}.tmp`);
+      const fd = fs.openSync(probePath, 'wx');
+      fs.closeSync(fd);
+      fs.unlinkSync(probePath);
+    }
     return true;
   } catch {
     return false;
@@ -273,16 +349,25 @@ async function applyDeltaAsarUpdate({ stagedAsarPath, expectedSha256 = '' }) {
     const psScriptPath = path.join(app.getPath('temp'), `spacelauncher-delta-${currentPid}.ps1`);
     const psLines = [
       `while (Get-Process -Id ${currentPid} -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }`,
-      `Start-Sleep -Milliseconds 300`,
+      `Start-Sleep -Milliseconds 600`,
       `$target = '${esc(targetAsar)}'`,
       `$staged = '${esc(stagedAsarPath)}'`,
       `$backup = '${esc(targetAsar)}.bak'`,
-      `try {`,
-      `  if (Test-Path $target) { Copy-Item -Path $target -Destination $backup -Force }`,
-      `  Move-Item -Path $staged -Destination $target -Force`,
-      `  Remove-Item -Path $backup -Force -ErrorAction SilentlyContinue`,
-      `} catch {`,
-      `  if (Test-Path $backup) { Move-Item -Path $backup -Destination $target -Force -ErrorAction SilentlyContinue }`,
+      `$updated = $false`,
+      `for ($i = 0; $i -lt 20; $i++) {`,
+      `  try {`,
+      `    if (Test-Path $target) { Copy-Item -Path $target -Destination $backup -Force -ErrorAction Stop }`,
+      `    Copy-Item -Path $staged -Destination $target -Force -ErrorAction Stop`,
+      `    Remove-Item -Path $staged -Force -ErrorAction SilentlyContinue`,
+      `    Remove-Item -Path $backup -Force -ErrorAction SilentlyContinue`,
+      `    $updated = $true`,
+      `    break`,
+      `  } catch {`,
+      `    Start-Sleep -Milliseconds 250`,
+      `  }`,
+      `}`,
+      `if (-not $updated -and (Test-Path $backup)) {`,
+      `  Copy-Item -Path $backup -Destination $target -Force -ErrorAction SilentlyContinue`,
       `}`,
       `Start-Process -FilePath '${esc(execPath)}'`,
       `Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue`,
@@ -354,7 +439,8 @@ export async function downloadAndApplyUpdate(updatePayload = {}, { onEvent = nul
     onEvent?.('minecraft:update-complete', { phase: 'complete', currentVersion, latestVersion, assetName: deltaAsset.name, isDelta: true, path: swapRes.path });
     setTimeout(() => {
       app.quit();
-    }, 400);
+      setTimeout(() => app.exit(0), 1500).unref();
+    }, 300);
     return { ok: true, available: true, downloaded: true, isDelta: true, path: swapRes.path, currentVersion, latestVersion };
   }
 
@@ -396,7 +482,8 @@ export async function downloadAndApplyUpdate(updatePayload = {}, { onEvent = nul
   if (launchResult?.launched) {
     setTimeout(() => {
       app.quit();
-    }, 400);
+      setTimeout(() => app.exit(0), 1500).unref();
+    }, 300);
   }
 
   return { ok: true, available: true, downloaded: true, path: downloadPath, currentVersion, latestVersion };
