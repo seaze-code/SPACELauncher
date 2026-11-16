@@ -1,7 +1,7 @@
 {
   "name": "spacelauncher",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "SpaceLauncher — Clean, fast Minecraft launcher with isolated instances, Skin Studio, and Modrinth integration",
   "author": "Sea",
   "homepage": "https://github.com/seaze-code/SPACELauncher",

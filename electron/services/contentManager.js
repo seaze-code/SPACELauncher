@@ -1084,11 +1084,56 @@ export async function installModrinthProject({
   }
 
   if (!targetVersion && projectId) {
-    const versions = await getModrinthProjectVersions({
+    const cleanLoader = String(loader || '').trim().toLowerCase();
+    const effectiveLoaders = normalizedType === 'mod' && cleanLoader && !['all', 'auto', 'vanilla'].includes(cleanLoader)
+      ? [cleanLoader]
+      : [];
+    const cleanGameVer = gameVersion && String(gameVersion).toLowerCase() !== 'all' ? String(gameVersion).trim() : '';
+    const effectiveGameVersions = cleanGameVer ? [cleanGameVer] : [];
+
+    let versions = await getModrinthProjectVersions({
       idOrSlug: projectId,
-      loaders: normalizedType === 'mod' && loader && loader !== 'all' ? [loader.toLowerCase()] : [],
-      gameVersions: gameVersion && gameVersion !== 'all' ? [gameVersion] : [],
+      loaders: effectiveLoaders,
+      gameVersions: effectiveGameVersions,
     }).catch(() => []);
+
+    // Fallback 1: if exact gameVersion has no match (e.g. newer minor/patch like 1.21.11),
+    // fetch with same loader and match same major.minor (e.g. 1.21.x) or newest release.
+    if ((!Array.isArray(versions) || versions.length === 0) && effectiveGameVersions.length > 0) {
+      const broader = await getModrinthProjectVersions({
+        idOrSlug: projectId,
+        loaders: effectiveLoaders,
+        gameVersions: [],
+      }).catch(() => []);
+      if (Array.isArray(broader) && broader.length > 0) {
+        const majorMinor = cleanGameVer.match(/^(\d+\.\d+)/)?.[1];
+        const minorMatches = majorMinor
+          ? broader.filter(v => Array.isArray(v.game_versions) && v.game_versions.some(gv => gv === majorMinor || gv.startsWith(`${majorMinor}.`)))
+          : [];
+        versions = minorMatches.length > 0 ? minorMatches : broader;
+      }
+    }
+
+    // Fallback 2: if loader filter still yielded nothing, drop loader filter.
+    if ((!Array.isArray(versions) || versions.length === 0) && effectiveLoaders.length > 0) {
+      versions = await getModrinthProjectVersions({
+        idOrSlug: projectId,
+        loaders: [],
+        gameVersions: effectiveGameVersions,
+      }).catch(() => []);
+      if (!Array.isArray(versions) || versions.length === 0) {
+        versions = await getModrinthProjectVersions({
+          idOrSlug: projectId,
+          loaders: [],
+          gameVersions: [],
+        }).catch(() => []);
+      }
+    }
+
+    const pickPreferred = (list) => {
+      if (!Array.isArray(list) || list.length === 0) return null;
+      return list.find(v => v.version_type === 'release') || list[0];
+    };
 
     if (versionNumber) {
       const searchNum = String(versionNumber).toLowerCase().replace(/^v/i, '').trim();
@@ -1097,9 +1142,9 @@ export async function installModrinthProject({
         const vName = String(v.name || '').toLowerCase();
         const fileNames = (v.files || []).map(f => String(f.filename || '').toLowerCase());
         return vNum === searchNum || vNum.includes(searchNum) || vName.includes(searchNum) || fileNames.some(fn => fn.includes(searchNum));
-      }) || versions?.[0] || null;
+      }) || pickPreferred(versions);
     } else {
-      targetVersion = versions?.[0] || null;
+      targetVersion = pickPreferred(versions);
     }
   }
 
